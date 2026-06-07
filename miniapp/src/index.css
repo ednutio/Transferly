@@ -1,0 +1,141 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@200;300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  @apply font-sans;
+}
+
+html {
+  scroll-behavior: smooth;
+  --tg-bg-color: #f5f7fb;
+  --tg-text-color: #111827;
+  --tg-hint-color: #64748b;
+  --tg-link-color: #229ed9;
+  --tg-button-color: #229ed9;
+  --tg-button-text-color: #ffffff;
+  --tg-secondary-bg-color: #eef3f8;
+  --tg-section-bg-color: #ffffff;
+  --tg-section-header-text-color: #229ed9;
+  --tg-subtitle-text-color: #64748b;
+  --tg-destructive-text-color: #ef4444;
+  --tg-header-bg-color: #ffffff;
+  --tg-bottom-bar-bg-color: #ffffff;
+  --tg-accent-text-color: #f8812d;
+}
+
+body {
+  @apply bg-gray-50 text-gray-900;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--tg-bg-color);
+}
+
+.transferly-miniapp-skin {
+  --tg-bg-color: #111111;
+  --tg-text-color: #f8f4ee;
+  --tg-hint-color: #8f887f;
+  --tg-link-color: #f8812d;
+  --tg-button-color: #f8812d;
+  --tg-button-text-color: #ffffff;
+  --tg-secondary-bg-color: #1c1a18;
+  --tg-section-bg-color: #181614;
+  --tg-section-header-text-color: #f8812d;
+  --tg-subtitle-text-color: #b5aba0;
+  --tg-destructive-text-color: #f97373;
+  --tg-header-bg-color: #141312;
+  --tg-bottom-bar-bg-color: #141312;
+  --tg-accent-text-color: #f8812d;
+  --miniapp-shell-bg: #121110;
+  --miniapp-panel-bg: #1a1715;
+  --miniapp-header-bg: rgba(18, 17, 16, 0.86);
+  --miniapp-bottom-bg: rgba(18, 17, 16, 0.92);
+  --miniapp-bottom-panel-bg: #181614;
+  --miniapp-border-color: rgba(255, 255, 255, 0.08);
+  --miniapp-shell-text: #ffffff;
+  --miniapp-shell-text-muted: rgba(255, 255, 255, 0.52);
+  --miniapp-nav-active-bg: #ffffff;
+  --miniapp-nav-active-text: #121212;
+  --miniapp-nav-idle-text: rgba(255, 255, 255, 0.5);
+  --miniapp-nav-hover-bg: rgba(255, 255, 255, 0.08);
+  color-scheme: dark;
+  background:
+    radial-gradient(circle at 15% -10%, rgba(248, 129, 45, 0.16), transparent 28rem),
+    linear-gradient(180deg, #151412 0%, #101010 56%, #0d0d0d 100%);
+}
+
+.transferly-miniapp-skin-light {
+  --tg-bg-color: #f5f7fb;
+  --tg-text-color: #111827;
+  --tg-hint-color: #64748b;
+  --tg-link-color: #f8812d;
+  --tg-button-color: #f8812d;
+  --tg-button-text-color: #ffffff;
+  --tg-secondary-bg-color: #eef3f8;
+  --tg-section-bg-color: #ffffff;
+  --tg-section-header-text-color: #f8812d;
+  --tg-subtitle-text-color: #64748b;
+  --tg-destructive-text-color: #dc2626;
+  --tg-header-bg-color: #ffffff;
+  --tg-bottom-bar-bg-color: #ffffff;
+  --tg-accent-text-color: #f8812d;
+  --miniapp-shell-bg: #ffffff;
+  --miniapp-panel-bg: #ffffff;
+  --miniapp-header-bg: rgba(255, 255, 255, 0.9);
+  --miniapp-bottom-bg: rgba(255, 255, 255, 0.94);
+  --miniapp-bottom-panel-bg: #ffffff;
+  --miniapp-border-color: rgba(15, 23, 42, 0.1);
+  --miniapp-shell-text: #111827;
+  --miniapp-shell-text-muted: #64748b;
+  --miniapp-nav-active-bg: #111827;
+  --miniapp-nav-active-text: #ffffff;
+  --miniapp-nav-idle-text: #64748b;
+  --miniapp-nav-hover-bg: rgba(15, 23, 42, 0.06);
+  color-scheme: light;
+  background:
+    radial-gradient(circle at 15% -10%, rgba(248, 129, 45, 0.12), transparent 28rem),
+    linear-gradient(180deg, #f8fafc 0%, #f3f6fb 56%, #eef3f8 100%);
+}
+
+.transferly-miniapp-skin ::selection {
+  background: rgba(248, 129, 45, 0.32);
+  color: #ffffff;
+}
+
+.transferly-miniapp-skin * {
+  scrollbar-color: rgba(248, 129, 45, 0.58) rgba(255, 255, 255, 0.06);
+}
+
+.transferly-miniapp-skin-light ::selection {
+  background: rgba(248, 129, 45, 0.2);
+  color: #111827;
+}
+
+.transferly-miniapp-skin-light * {
+  scrollbar-color: rgba(248, 129, 45, 0.44) rgba(15, 23, 42, 0.08);
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .miniapp-enter {
+    animation: miniapp-enter 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
+
+@keyframes miniapp-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
