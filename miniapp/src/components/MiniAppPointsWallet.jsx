@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
+  AlertCircle,
   BadgeCheck,
   Banknote,
   Bitcoin,
@@ -17,6 +18,7 @@ import toast from 'react-hot-toast';
 import { useAppContext } from '../context/AppContext';
 import { useTelegramMiniApp } from '../context/TelegramMiniAppContext';
 import { serviceCatalog } from '../lib/servicesCatalog';
+import MiniAppOperationStatus from './MiniAppOperationStatus';
 
 const fundingMethods = [
   {
@@ -45,6 +47,53 @@ const packOptions = [50, 100, 250, 500];
 
 function statusLabel(status) {
   return String(status || 'pending').replace(/_/g, ' ');
+}
+
+function orderStatusMeta(status) {
+  const key = String(status || 'pending').toLowerCase();
+
+  if (key === 'pending') {
+    return {
+      label: 'Payment pending',
+      body: 'Send proof to the vendor, then mark the order paid.',
+      icon: Clock3,
+      tone: 'warn'
+    };
+  }
+
+  if (key === 'awaiting_confirmation') {
+    return {
+      label: 'Awaiting confirmation',
+      body: 'Support is reviewing the proof before releasing points.',
+      icon: ShieldCheck,
+      tone: 'info'
+    };
+  }
+
+  if (key === 'completed') {
+    return {
+      label: 'Completed',
+      body: 'Points were released to your wallet balance.',
+      icon: CheckCircle2,
+      tone: 'success'
+    };
+  }
+
+  if (['failed', 'cancelled', 'rejected'].includes(key)) {
+    return {
+      label: statusLabel(status),
+      body: 'This order needs support review before it can continue.',
+      icon: AlertCircle,
+      tone: 'danger'
+    };
+  }
+
+  return {
+    label: statusLabel(status),
+    body: 'Order status is being synchronized.',
+    icon: Clock3,
+    tone: 'info'
+  };
 }
 
 function formatDate(value) {
@@ -126,13 +175,24 @@ function MethodCard({ method, active, onSelect }) {
 
 function OrderRow({ order, onMarkPaid, markingPaid }) {
   const isPending = order.status === 'pending';
+  const meta = orderStatusMeta(order.status);
+  const StatusIcon = meta.icon;
+  const vendorUrl = order.vendor_url || order.vendorUrl;
+  const statusTone = meta.tone === 'danger'
+    ? 'text-[var(--tg-destructive-text-color)]'
+    : meta.tone === 'success'
+      ? 'text-[var(--tg-button-color)]'
+      : 'text-[var(--tg-hint-color)]';
 
   return (
     <article className="rounded-[24px] bg-[var(--tg-secondary-bg-color)] p-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="truncate text-sm font-black text-[var(--tg-text-color)]">{order.order_id || order.id}</p>
-          <p className="mt-1 text-xs font-bold capitalize text-[var(--tg-hint-color)]">{statusLabel(order.status)}</p>
+          <p className={`mt-1 inline-flex items-center gap-1.5 text-xs font-black capitalize ${statusTone}`}>
+            <StatusIcon size={13} />
+            {meta.label}
+          </p>
         </div>
         <span className="rounded-full bg-[var(--tg-section-bg-color)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--tg-hint-color)]">
           {order.amount_label || `${Number(order.points || 0).toLocaleString()} pts`}
@@ -142,18 +202,82 @@ function OrderRow({ order, onMarkPaid, markingPaid }) {
         <span>{order.method_title || 'Funding method'}</span>
         <span>{formatDate(order.created_at)}</span>
       </div>
+      <p className="mt-3 text-xs font-bold leading-5 text-[var(--tg-subtitle-text-color)]">{meta.body}</p>
       {isPending ? (
-        <button
-          type="button"
-          onClick={() => onMarkPaid(order)}
-          disabled={markingPaid}
-          className="mt-4 flex w-full items-center justify-center gap-2 rounded-[18px] bg-[var(--tg-section-bg-color)] px-4 py-3 text-sm font-black text-[var(--tg-text-color)] transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <BadgeCheck size={16} />
-          I have paid
-        </button>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => onMarkPaid(order)}
+            disabled={markingPaid}
+            className="flex w-full items-center justify-center gap-2 rounded-[18px] bg-[var(--tg-section-bg-color)] px-4 py-3 text-sm font-black text-[var(--tg-text-color)] transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <BadgeCheck size={16} />
+            I have paid
+          </button>
+          {vendorUrl ? (
+            <a
+              href={vendorUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex w-full items-center justify-center gap-2 rounded-[18px] bg-[var(--tg-section-bg-color)] px-4 py-3 text-sm font-black text-[var(--tg-text-color)]"
+            >
+              <MessageCircle size={16} />
+              Vendor chat
+            </a>
+          ) : null}
+        </div>
       ) : null}
     </article>
+  );
+}
+
+function WalletReadiness({ authenticated, activePoints, selectedMethod, selectedService }) {
+  const items = [
+    {
+      label: 'Telegram session',
+      detail: authenticated ? 'Account linked' : 'Open from Telegram',
+      complete: authenticated
+    },
+    {
+      label: 'Point amount',
+      detail: activePoints >= 5 ? `${Number(activePoints).toLocaleString()} pts selected` : 'Choose at least 5 points',
+      complete: activePoints >= 5
+    },
+    {
+      label: 'Funding method',
+      detail: selectedMethod?.title || 'Choose a method',
+      complete: Boolean(selectedMethod?.id)
+    },
+    {
+      label: 'Service intent',
+      detail: selectedService?.title || 'General balance',
+      complete: true
+    }
+  ];
+
+  return (
+    <section aria-label="Point order readiness" className="rounded-[30px] bg-[var(--tg-section-bg-color)] p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--tg-hint-color)]">Order readiness</p>
+          <h3 className="mt-2 text-2xl font-black text-[var(--tg-text-color)]">Ready before checkout</h3>
+        </div>
+        <ShieldCheck className="shrink-0 text-[var(--tg-button-color)]" size={26} />
+      </div>
+      <div className="mt-5 grid gap-2 sm:grid-cols-4">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-[20px] bg-[var(--tg-secondary-bg-color)] p-3">
+            {item.complete ? (
+              <CheckCircle2 className="text-[var(--tg-button-color)]" size={18} />
+            ) : (
+              <AlertCircle className="text-[var(--tg-destructive-text-color)]" size={18} />
+            )}
+            <p className="mt-3 text-sm font-black text-[var(--tg-text-color)]">{item.label}</p>
+            <p className="mt-1 text-xs font-bold text-[var(--tg-subtitle-text-color)]">{item.detail}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -174,6 +298,7 @@ export default function MiniAppPointsWallet() {
   const [serviceIntent, setServiceIntent] = useState('');
   const [creating, setCreating] = useState(false);
   const [markingPaid, setMarkingPaid] = useState(false);
+  const [operationState, setOperationState] = useState({ status: 'idle' });
 
   const selectedMethod = fundingMethods.find((method) => method.id === selectedMethodId) || fundingMethods[0];
   const selectedService = services.find((service) => service.slug === serviceIntent) || services[0];
@@ -190,6 +315,7 @@ export default function MiniAppPointsWallet() {
   const selectPoints = (points) => {
     setSelectedPoints(points);
     setCustomPoints('');
+    setOperationState({ status: 'idle' });
     telegram.impact('light');
   };
 
@@ -199,20 +325,34 @@ export default function MiniAppPointsWallet() {
     }
 
     if (!authenticated) {
-      toast.error('Sign in or open from Telegram to create a funding order');
+      setOperationState({
+        status: 'error',
+        title: 'Telegram session required',
+        description: 'Open Transferly from Telegram to create a funding order.'
+      });
+      toast.error('Open Transferly from Telegram to create a funding order');
       telegram.notify('error');
       return;
     }
 
     if (!activePoints || activePoints < 5) {
+      setOperationState({
+        status: 'error',
+        title: 'Choose more points',
+        description: 'Point orders require at least 5 points.'
+      });
       toast.error('Choose at least 5 points');
       telegram.impact('light');
       return;
     }
 
     setCreating(true);
+    setOperationState({
+      status: 'loading',
+      title: 'Creating point order',
+      description: `Preparing ${amountLabel} through ${selectedMethod.title}.`
+    });
     telegram.impact('medium');
-    telegram.webApp?.MainButton?.showProgress?.();
 
     try {
       const result = await createTopUpOrder({
@@ -227,19 +367,33 @@ export default function MiniAppPointsWallet() {
       });
 
       if (!result.success) {
+        setOperationState({
+          status: 'retry',
+          title: 'Order was not created',
+          description: result.message || 'Try again when the Telegram session is active.'
+        });
         toast.error(result.message || 'Unable to create order');
         telegram.notify('error');
         return;
       }
 
+      setOperationState({
+        status: 'success',
+        title: 'Point order created',
+        description: 'Send the payment proof, then mark the order paid from the timeline.'
+      });
       toast.success('Point order created');
       telegram.notify('success');
     } catch (_error) {
+      setOperationState({
+        status: 'retry',
+        title: 'Order was not created',
+        description: 'Check your connection and try again.'
+      });
       toast.error('Unable to create order');
       telegram.notify('error');
     } finally {
       setCreating(false);
-      telegram.webApp?.MainButton?.hideProgress?.();
     }
   }, [activePoints, amountLabel, authenticated, createTopUpOrder, creating, selectedMethod, selectedService?.title, serviceIntent, telegram]);
 
@@ -248,43 +402,50 @@ export default function MiniAppPointsWallet() {
       return;
     }
 
+    const confirmed = await telegram.showConfirm?.('Mark this order as paid and notify support?');
+    if (confirmed === false) {
+      return;
+    }
+
     setMarkingPaid(true);
+    setOperationState({
+      status: 'loading',
+      title: 'Updating order status',
+      description: `${order.order_id} is being moved to support confirmation.`
+    });
     telegram.impact('medium');
 
     const result = await updateTopUpOrderStatus(order.order_id, 'awaiting_confirmation');
     setMarkingPaid(false);
 
     if (!result.success) {
+      setOperationState({
+        status: 'retry',
+        title: 'Order status was not updated',
+        description: result.message || 'Try again or send the proof through support chat.'
+      });
       toast.error(result.message || 'Unable to update order');
       telegram.notify('error');
       return;
     }
 
+    setOperationState({
+      status: 'success',
+      title: 'Order sent for confirmation',
+      description: 'Support will review the payment proof before releasing points.'
+    });
     toast.success('Order marked as awaiting confirmation');
     telegram.notify('success');
   };
 
   useEffect(() => {
-    const button = telegram.webApp?.MainButton;
-    if (!button) {
-      return undefined;
-    }
-
-    button.setText?.(creating ? 'Creating Order' : 'Create Point Order');
-    if (canCreate) {
-      button.enable?.();
-    } else {
-      button.disable?.();
-    }
-    button.show?.();
-    button.onClick?.(createOrder);
-
-    return () => {
-      button.offClick?.(createOrder);
-      button.hideProgress?.();
-      button.hide?.();
-    };
-  }, [canCreate, createOrder, creating, telegram.webApp]);
+    return telegram.configureMainButton?.({
+      text: creating ? 'Creating Order' : 'Create Point Order',
+      enabled: canCreate,
+      loading: creating,
+      onClick: createOrder
+    });
+  }, [canCreate, createOrder, creating, telegram.configureMainButton]);
 
   return (
     <div className="space-y-4">
@@ -388,6 +549,21 @@ export default function MiniAppPointsWallet() {
         ))}
       </div>
 
+      <WalletReadiness
+        authenticated={authenticated}
+        activePoints={activePoints}
+        selectedMethod={selectedMethod}
+        selectedService={selectedService}
+      />
+
+      <MiniAppOperationStatus
+        status={operationState.status}
+        title={operationState.title}
+        description={operationState.description}
+        actionLabel={operationState.status === 'retry' ? 'Try again' : undefined}
+        onAction={operationState.status === 'retry' ? createOrder : undefined}
+      />
+
       <section className="rounded-[30px] bg-[var(--tg-section-bg-color)] p-5 shadow-sm">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -419,7 +595,7 @@ export default function MiniAppPointsWallet() {
         </div>
         {!authenticated ? (
           <p className="mt-4 rounded-[18px] bg-[color-mix(in_srgb,var(--tg-destructive-text-color)_10%,var(--tg-secondary-bg-color))] p-3 text-xs font-bold leading-5 text-[var(--tg-destructive-text-color)]">
-            Sign in on the web or open the app from Telegram before creating a funding order.
+            Open Transferly from Telegram before creating a funding order.
           </p>
         ) : null}
       </section>

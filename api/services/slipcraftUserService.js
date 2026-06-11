@@ -1,12 +1,10 @@
 const { transaction } = require('../db');
-const { authCredentialRepository } = require('../repositories/authCredentialRepository');
 const { pointTransactionRepository } = require('../repositories/pointTransactionRepository');
 const { profileRepository } = require('../repositories/profileRepository');
 const { receiptRepository } = require('../repositories/receiptRepository');
 const { userRepository } = require('../repositories/userRepository');
 const { AUDIT_ACTOR_TYPE, POINT_TRANSACTION_TYPE } = require('../utils/constants');
 const { AppError } = require('../utils/errors');
-const { hashPassword } = require('../utils/passwords');
 const { auditLogService } = require('./auditLogService');
 
 async function getUserOrThrow(userId, client) {
@@ -68,35 +66,6 @@ async function updateProfile(userId, input) {
   });
 }
 
-async function changePassword(userId, input) {
-  return transaction(async (client) => {
-    await getUserOrThrow(userId, client);
-    const password = await hashPassword(input.newPassword);
-
-    await authCredentialRepository.upsert(
-      {
-        userId,
-        passwordHash: password.hash,
-        passwordSalt: password.salt
-      },
-      client
-    );
-    await auditLogService.log(
-      {
-        actorType: AUDIT_ACTOR_TYPE.USER,
-        actorId: userId,
-        entityType: 'user',
-        entityId: userId,
-        action: 'slipcraft.user.password_changed',
-        metadata: {}
-      },
-      client
-    );
-
-    return { user_id: userId, password_updated: true };
-  });
-}
-
 async function deleteAccount(userId) {
   return transaction(async (client) => {
     await getUserOrThrow(userId, client);
@@ -151,7 +120,6 @@ async function adjustUserPoints({ targetUserId, delta, reason, adminActorId }) {
 module.exports = {
   slipcraftUserService: {
     adjustUserPoints,
-    changePassword,
     deleteAccount,
     getPointsSummary,
     listUsers,

@@ -52,6 +52,9 @@ const envSchema = z.object({
   SUSPICIOUS_INVOICE_KEYWORDS: z.string().default('crypto,investment,loan,casino,gift card'),
   API_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
   API_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+  CORS_ALLOWED_ORIGINS: z.string().default(''),
   JOB_WAIT_MS: z.coerce.number().int().positive().optional(),
   WEBHOOK_QUEUE_WAIT_MS: z.coerce.number().int().positive().optional(),
   ADMIN_API_TOKEN: z.string().default(''),
@@ -105,13 +108,36 @@ const sqliteDatabasePath = path.resolve(parsed.SQLITE_DATABASE_PATH);
 mkdirSync(path.dirname(sqliteDatabasePath), { recursive: true });
 const userApiTokens = parseUserApiTokens(parsed.USER_API_TOKENS);
 const defaultAdminActorId = parsed.ADMIN_API_ACTOR_ID || parsed.SEED_ADMIN_ACTOR_ID || 'system-admin';
+const telegramMiniAppUrl = parsed.TELEGRAM_MINI_APP_URL || new URL('/miniapp', parsed.FRONTEND_URL).toString();
+
+function toOrigin(value) {
+  try {
+    return new URL(value).origin;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function buildAllowedOrigins() {
+  const origins = new Set(splitCsv(parsed.CORS_ALLOWED_ORIGINS));
+
+  [parsed.APP_BASE_URL, parsed.FRONTEND_URL, telegramMiniAppUrl].forEach((url) => {
+    const origin = toOrigin(url);
+    if (origin) {
+      origins.add(origin);
+    }
+  });
+
+  return [...origins];
+}
 
 module.exports = {
   ...parsed,
   SQLITE_DATABASE_PATH: sqliteDatabasePath,
   JOB_WAIT_MS: parsed.JOB_WAIT_MS ?? parsed.WEBHOOK_QUEUE_WAIT_MS ?? 30000,
   WEBHOOK_QUEUE_WAIT_MS: parsed.JOB_WAIT_MS ?? parsed.WEBHOOK_QUEUE_WAIT_MS ?? 30000,
-  TELEGRAM_MINI_APP_URL: parsed.TELEGRAM_MINI_APP_URL || new URL('/miniapp', parsed.FRONTEND_URL).toString(),
+  TELEGRAM_MINI_APP_URL: telegramMiniAppUrl,
+  CORS_ALLOWED_ORIGINS: buildAllowedOrigins(),
   ADMIN_AUTH_ENABLED: Boolean(parsed.ADMIN_API_TOKEN),
   USER_AUTH_ENABLED: Boolean(parsed.JWT_SECRET) || Object.keys(userApiTokens).length > 0,
   JWT_AUTH_ENABLED: Boolean(parsed.JWT_SECRET),

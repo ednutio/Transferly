@@ -12,7 +12,10 @@ export default function ReferralPage() {
   const brand = config?.brand_color || '#f8812d';
   const bonus = config?.referral_bonus || 20;
 
-  const referralLink = useMemo(() => `${window.location.origin}/register?ref=${profile?.referral_code || ''}`, [profile?.referral_code]);
+  const referralLink = useMemo(
+    () => `https://t.me/TransferlyBot?start=${profile?.referral_code || ''}`,
+    [profile?.referral_code]
+  );
 
   useEffect(() => {
     if (!profile?.referral_code) {
@@ -49,7 +52,7 @@ export default function ReferralPage() {
                 Invite friends, grow your balance, and keep creating.
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/70 md:text-base">
-                Every successful signup through your code adds {bonus} points to your account. Copy the link once and share it anywhere you drive traffic.
+                Every successful bot-start through your code adds {bonus} points to your account. Copy the link once and share it anywhere you drive traffic.
               </p>
             </div>
 
@@ -57,7 +60,7 @@ export default function ReferralPage() {
               {[
                 { icon: Users, label: 'Referrals', value: profile?.referral_count || 0 },
                 { icon: Gift, label: 'Total earned', value: `${totalEarned} pts` },
-                { icon: Wallet, label: 'Per signup', value: `${bonus} pts` }
+                { icon: Wallet, label: 'Per invite', value: `${bonus} pts` }
               ].map((item) => {
                 const Icon = item.icon;
                 return (
@@ -112,8 +115,8 @@ export default function ReferralPage() {
             <div className="mt-6 grid gap-4 md:grid-cols-3">
               {[
                 { step: '01', title: 'Share your link', description: 'Post it in groups, communities, or send it directly to prospects.' },
-                { step: '02', title: 'They sign up', description: 'When they register with your code, the platform attributes the referral to you.' },
-                { step: '03', title: 'You earn points', description: `Each successful signup credits ${bonus} points back to your Transferly balance.` }
+                { step: '02', title: 'They open the bot', description: 'When Telegram passes your start code into the miniapp, the platform attributes the referral to you.' },
+                { step: '03', title: 'You earn points', description: `Each successful invite credits ${bonus} points back to your Transferly balance.` }
               ].map((item) => (
                 <div key={item.step} className="rounded-[24px] bg-[#faf7f1] p-5">
                   <p className="text-[11px] font-black uppercase tracking-[0.18em]" style={{ color: brand }}>{item.step}</p>
@@ -143,7 +146,7 @@ export default function ReferralPage() {
             <div className="rounded-[30px] border border-[#e9e0d2] bg-white p-5 shadow-[0_16px_40px_rgba(15,23,42,0.05)] md:p-7">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Recent signups</p>
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Recent invites</p>
                   <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">{referredUsers.length} referred users</h2>
                 </div>
               </div>

@@ -65,7 +65,7 @@ import {
 
 const sectionMeta = {
   home: {
-    title: 'Command Center',
+    title: 'Wallet Home',
     subtitle: 'Telegram-native workspace'
   },
   services: {
@@ -102,7 +102,7 @@ const sectionMeta = {
   },
   risk: {
     title: 'Risk Command',
-    subtitle: 'Admin safety controls'
+    subtitle: 'Operator safety controls'
   },
   security: {
     title: 'Security',
@@ -172,6 +172,7 @@ const startParamSections = {
 };
 
 const DEFAULT_SCREEN_KEY = 'transferly_miniapp_default_screen';
+const TELEGRAM_BOT_URL = 'https://t.me/TransferlyBot';
 
 const defaultScreenOptions = [
   { id: 'home', label: 'Command', to: '/miniapp', icon: Gauge },
@@ -811,7 +812,7 @@ const marketplaceLanes = [
 
 const supportFaqs = [
   {
-    question: 'How do I open Transferly without login/register?',
+    question: 'How do I open Transferly from Telegram?',
     answer: 'Use the Telegram bot launch buttons. The miniapp reads Telegram context and routes you into the right workspace.'
   },
   {
@@ -1148,80 +1149,172 @@ function HeroPanel({ profile, telegram, receipts, topUpOrders }) {
   const firstName = telegram.user?.first_name || profile?.name?.split(' ')?.[0] || 'Operator';
   const latestOrder = topUpOrders[0];
   const balance = Number(profile?.points || 0);
+  const metrics = [
+    { label: 'Services', value: miniAppServiceHighlights.length, icon: Sparkles, to: '/miniapp/services', detail: 'Launch lanes' },
+    { label: 'Orders', value: topUpOrders.length, icon: CreditCard, to: '/miniapp/orders', detail: latestOrder?.status || 'No pending orders' },
+    { label: 'History', value: receipts.length, icon: History, to: '/miniapp/vault', detail: receipts[0]?.title || 'Receipt vault' }
+  ];
+  const quickActions = [
+    {
+      title: 'Buy Points',
+      body: latestOrder?.status || 'Fund wallet balance for premium services.',
+      icon: WalletCards,
+      to: '/miniapp/wallet',
+      accent: true
+    },
+    {
+      title: 'Receipt Studio',
+      body: 'Generate a polished receipt and save it to the vault.',
+      icon: Receipt,
+      to: '/miniapp/studio'
+    },
+    {
+      title: 'Provider Ops',
+      body: 'Inspect provider health, queues, and payment operations.',
+      icon: Activity,
+      to: '/miniapp/ops'
+    },
+    {
+      title: 'Support Handoff',
+      body: 'Attach account context before opening support.',
+      icon: LifeBuoy,
+      to: '/miniapp/support?from=home'
+    }
+  ];
+  const workflowSteps = [
+    { label: 'Fund', icon: WalletCards, active: balance > 0 },
+    { label: 'Create', icon: Receipt, active: true },
+    { label: 'Track', icon: History, active: receipts.length > 0 || topUpOrders.length > 0 },
+    { label: 'Resolve', icon: ShieldCheck, active: telegram.available }
+  ];
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-[15px] font-semibold text-[var(--tg-subtitle-text-color)]">Welcome back,</p>
-          <h2 className="mt-1 text-3xl font-black tracking-[-0.04em] text-[var(--tg-text-color)] sm:text-4xl">
-            {firstName}
-          </h2>
-        </div>
-        <Link
-          to="/miniapp/wallet"
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--tg-button-color)] px-5 py-3 text-sm font-black text-[var(--tg-button-text-color)] shadow-[0_14px_34px_rgba(248,129,45,0.26)] transition active:scale-95"
-        >
-          <Zap size={17} />
-          Buy Points
-        </Link>
-      </div>
+    <section className="space-y-4 miniapp-enter">
+      <div className="miniapp-command-hero relative overflow-hidden rounded-[32px] border border-[var(--miniapp-border-color)] p-5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.34)] sm:p-6">
+        <div className="pointer-events-none absolute -right-12 -top-20 h-52 w-52 rounded-full bg-white/10 blur-3xl" />
+        <div className="pointer-events-none absolute bottom-0 left-1/2 h-px w-2/3 -translate-x-1/2 bg-gradient-to-r from-transparent via-white/30 to-transparent" />
 
-      <div className="overflow-hidden rounded-[30px] bg-[var(--tg-button-color)] p-5 text-[var(--tg-button-text-color)] shadow-[0_24px_58px_rgba(248,129,45,0.28)]">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-white/70">Total Balance</p>
-            <p className="mt-3 text-4xl font-black tracking-[-0.06em] sm:text-5xl">
-              {balance.toLocaleString()} pts
-            </p>
-          </div>
-          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.16]">
-            <WalletCards size={22} />
-          </span>
-        </div>
-        <div className="mt-6 grid grid-cols-3 gap-2">
-          {[
-            { label: 'Services', value: miniAppServiceHighlights.length, icon: Sparkles, to: '/miniapp/services' },
-            { label: 'Orders', value: topUpOrders.length, icon: CreditCard, to: '/miniapp/orders' },
-            { label: 'History', value: receipts.length, icon: History, to: '/miniapp/vault' }
-          ].map((item) => {
-            const Icon = item.icon;
-            return (
+        <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-stretch">
+          <div className="min-w-0">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-[15px] font-semibold text-white/76">Welcome back,</p>
+                <h2 className="mt-1 truncate text-4xl font-black tracking-[-0.045em] text-white sm:text-5xl">
+                  {firstName}
+                </h2>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-2 rounded-full bg-white/12 px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.13em] text-white/78">
+                    <Bot size={14} />
+                    {telegram.available ? 'Telegram runtime' : 'Browser preview'}
+                  </span>
+                  <span className="inline-flex items-center gap-2 rounded-full bg-emerald-400/15 px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.13em] text-emerald-100">
+                    <CheckCircle2 size={14} />
+                    Command ready
+                  </span>
+                </div>
+              </div>
               <Link
-                key={item.label}
-                to={item.to}
-                className="rounded-[22px] bg-white/[0.14] p-3 text-white transition hover:bg-white/20 active:scale-[0.98]"
+                to="/miniapp/wallet"
+                className="miniapp-pressable inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-black text-[#15110f] shadow-[0_18px_44px_rgba(0,0,0,0.24)]"
               >
-                <Icon size={18} />
-                <span className="mt-3 block text-xl font-black tracking-[-0.04em]">{Number(item.value || 0).toLocaleString()}</span>
-                <span className="mt-0.5 block text-[11px] font-black uppercase tracking-[0.12em] text-white/[0.72]">{item.label}</span>
+                <Zap size={17} />
+                Buy Points
               </Link>
-            );
-          })}
+            </div>
+
+            <div className="mt-8">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-white/60">Total Balance</p>
+              <p className="mt-2 text-5xl font-black tracking-[-0.065em] text-white sm:text-6xl">
+                {balance.toLocaleString()} pts
+              </p>
+            </div>
+
+            <div className="mt-6 grid grid-cols-3 gap-2">
+              {metrics.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.label}
+                    to={item.to}
+                    className="miniapp-pressable rounded-[24px] border border-white/10 bg-white/[0.13] p-3 text-white backdrop-blur"
+                  >
+                    <Icon size={18} />
+                    <span className="mt-3 block text-2xl font-black tracking-[-0.04em]">{Number(item.value || 0).toLocaleString()}</span>
+                    <span className="mt-0.5 block truncate text-[10px] font-black uppercase tracking-[0.12em] text-white/[0.66]">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-white/10 bg-black/18 p-4 backdrop-blur-xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-white/58">Today flow</p>
+                <p className="mt-1 text-lg font-black tracking-[-0.03em] text-white">Operate faster</p>
+              </div>
+              <span className="flex h-12 w-12 items-center justify-center rounded-[20px] bg-white/12 text-white">
+                <Layers3 size={21} />
+              </span>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {workflowSteps.map((step, index) => {
+                const Icon = step.icon;
+                return (
+                  <div key={step.label} className="flex items-center gap-3">
+                    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] ${step.active ? 'bg-white text-[#15110f]' : 'bg-white/10 text-white/52'}`}>
+                      <Icon size={18} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-black text-white">{step.label}</span>
+                      <span className="block text-xs font-bold text-white/54">Step {index + 1} of {workflowSteps.length}</span>
+                    </span>
+                    <span className={`h-2.5 w-2.5 rounded-full ${step.active ? 'bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.7)]' : 'bg-white/20'}`} />
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-5 rounded-[22px] bg-white/10 p-3">
+              <p className="text-[11px] font-black uppercase tracking-[0.14em] text-white/58">Latest signal</p>
+              <p className="mt-1 truncate text-sm font-black text-white">{latestOrder?.order_id || receipts[0]?.title || 'Workspace ready'}</p>
+              <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-white/58">{latestOrder?.status || metrics[2].detail}</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <Link
-          to="/miniapp/wallet"
-          className="rounded-[26px] bg-[var(--tg-section-bg-color)] p-4 text-[var(--tg-text-color)] transition active:scale-[0.99]"
-        >
-          <span className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-[var(--tg-button-color)] text-[var(--tg-button-text-color)]">
-            <WalletCards size={22} />
-          </span>
-          <span className="mt-4 block text-lg font-black tracking-[-0.03em]">Buy Points</span>
-          <span className="mt-1 block text-xs font-bold text-[var(--tg-hint-color)]">{latestOrder?.status || 'Wallet top-up'}</span>
-        </Link>
-        <Link
-          to="/miniapp/support?from=vendor"
-          className="rounded-[26px] bg-[var(--tg-section-bg-color)] p-4 text-[var(--tg-text-color)] transition active:scale-[0.99]"
-        >
-          <span className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-[var(--tg-secondary-bg-color)] text-[var(--tg-button-color)]">
-            <UserRound size={22} />
-          </span>
-          <span className="mt-4 block text-lg font-black tracking-[-0.03em]">Join Vendor</span>
-          <span className="mt-1 block text-xs font-bold text-[var(--tg-hint-color)]">Support handoff</span>
-        </Link>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {quickActions.map((action) => {
+          const Icon = action.icon;
+          return (
+            <Link
+              key={action.title}
+              to={action.to}
+              className={`miniapp-pressable group rounded-[26px] border border-[var(--miniapp-border-color)] p-4 shadow-sm ${
+                action.accent
+                  ? 'bg-[var(--tg-button-color)] text-[var(--tg-button-text-color)]'
+                  : 'bg-[var(--tg-section-bg-color)] text-[var(--tg-text-color)]'
+              }`}
+            >
+              <span className={`flex h-12 w-12 items-center justify-center rounded-[18px] ${
+                action.accent
+                  ? 'bg-white/[0.16] text-white'
+                  : 'bg-[var(--tg-secondary-bg-color)] text-[var(--tg-button-color)]'
+              }`}>
+                <Icon size={22} />
+              </span>
+              <span className="mt-4 flex items-center justify-between gap-3">
+                <span className="text-base font-black tracking-[-0.03em]">{action.title}</span>
+                <ArrowRight size={16} className="shrink-0 transition group-hover:translate-x-0.5" />
+              </span>
+              <span className={`mt-1 block line-clamp-2 text-xs font-bold leading-5 ${action.accent ? 'text-white/76' : 'text-[var(--tg-hint-color)]'}`}>
+                {action.body}
+              </span>
+            </Link>
+          );
+        })}
       </div>
     </section>
   );
@@ -3513,7 +3606,7 @@ function MiniAppMailServicePicker({ service }) {
         className="mx-auto flex w-fit items-center gap-2 rounded-full bg-[var(--tg-section-bg-color)] px-4 py-2 text-sm font-black text-[var(--tg-button-color)] transition active:scale-95"
       >
         <ArrowLeft size={16} />
-        Back to Dashboard
+        Back to Wallet Home
       </Link>
     </div>
   );
@@ -3717,6 +3810,7 @@ function buildSupportContext({ source, telegram, profile, user, receipts, topUpO
 
 function SupportSection({ telegram, profile, user, receipts, topUpOrders, paymentIssues }) {
   const location = useLocation();
+  const { configureMainButton, notify } = telegram;
   const [query, setQuery] = useState('');
   const [openQuestion, setOpenQuestion] = useState(supportFaqs[0]?.question || '');
   const supportContext = useMemo(() => {
@@ -3735,21 +3829,21 @@ function SupportSection({ telegram, profile, user, receipts, topUpOrders, paymen
   const copyContext = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(supportContext);
-      telegram.notify('success');
+      notify('success');
       toast.success('Support context copied');
     } catch (_error) {
-      telegram.notify('error');
+      notify('error');
       toast.error('Unable to copy support context');
     }
-  }, [supportContext, telegram]);
+  }, [notify, supportContext]);
 
   useEffect(() => {
-    return telegram.configureMainButton?.({
+    return configureMainButton?.({
       text: 'Copy Support Context',
       enabled: true,
       onClick: copyContext
     });
-  }, [copyContext, telegram]);
+  }, [configureMainButton, copyContext]);
 
   const filteredFaqs = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -4019,6 +4113,7 @@ function OrdersSection({ topUpOrders, telegram }) {
 }
 
 function ProfileSection({ telegram, profile, user }) {
+  const { configureMainButton, impact, notify } = telegram;
   const [activeTab, setActiveTab] = useState('Personal info');
   const referralCode = profile?.referral_code || 'Not assigned';
   const telegramName = [telegram.user?.first_name, telegram.user?.last_name].filter(Boolean).join(' ');
@@ -4044,30 +4139,30 @@ function ProfileSection({ telegram, profile, user }) {
   const copyReferral = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(referralLink);
-      telegram.notify('success');
+      notify('success');
       toast.success('Referral link copied');
     } catch (_error) {
       toast.error('Unable to copy referral link');
     }
-  }, [referralLink, telegram]);
+  }, [notify, referralLink]);
 
   const saveProfilePreview = () => {
-    telegram.impact('light');
+    impact('light');
     toast.success('Profile preferences saved');
   };
 
   const logoutPreview = () => {
-    telegram.notify('success');
+    notify('success');
     toast.success('Telegram mini app sessions are controlled by the bot');
   };
 
   useEffect(() => {
-    return telegram.configureMainButton?.({
+    return configureMainButton?.({
       text: 'Copy Ref Link',
       enabled: referralCode !== 'Not assigned',
       onClick: copyReferral
     });
-  }, [copyReferral, referralCode, telegram]);
+  }, [configureMainButton, copyReferral, referralCode]);
 
   return (
     <div className="space-y-4">
@@ -4254,6 +4349,12 @@ function ProfileSection({ telegram, profile, user }) {
 
 function SettingsSection({ telegram, profile, user }) {
   const navigate = useNavigate();
+  const {
+    configureMainButton,
+    hapticsEnabled,
+    impact,
+    setHapticsEnabled
+  } = telegram;
   const [defaultScreen, setDefaultScreen] = useState(() => {
     const stored = readStoredMiniAppSetting(DEFAULT_SCREEN_KEY, 'studio');
     return defaultScreenOptions.some((option) => option.id === stored) ? stored : 'studio';
@@ -4268,24 +4369,24 @@ function SettingsSection({ telegram, profile, user }) {
   }, [defaultScreen]);
 
   const openSelectedScreen = useCallback(() => {
-    telegram.impact('medium');
+    impact('medium');
     navigate(selectedScreen.to);
-  }, [navigate, selectedScreen.to, telegram]);
+  }, [impact, navigate, selectedScreen.to]);
 
   useEffect(() => {
-    return telegram.configureMainButton?.({
+    return configureMainButton?.({
       text: 'Open Default Screen',
       enabled: true,
       onClick: openSelectedScreen
     });
-  }, [openSelectedScreen, telegram]);
+  }, [configureMainButton, openSelectedScreen]);
 
   const toggleHaptics = () => {
-    const nextValue = !telegram.hapticsEnabled;
-    telegram.setHapticsEnabled(nextValue);
+    const nextValue = !hapticsEnabled;
+    setHapticsEnabled(nextValue);
 
     if (nextValue) {
-      telegram.impact('light');
+      impact('light');
     }
   };
 
@@ -4308,7 +4409,7 @@ function SettingsSection({ telegram, profile, user }) {
 
       <div className="grid gap-3 sm:grid-cols-3">
         <StatCard icon={Smartphone} label="Runtime" value={telegram.available ? 'Telegram' : 'Preview'} tone={telegram.available ? 'accent' : 'warn'} />
-        <StatCard icon={Vibrate} label="Haptics" value={telegram.hapticsEnabled ? 'Enabled' : 'Muted'} />
+        <StatCard icon={Vibrate} label="Haptics" value={hapticsEnabled ? 'Enabled' : 'Muted'} />
         <StatCard icon={UserRound} label="Account" value={user || profile ? 'Linked' : 'Guest'} tone={user || profile ? 'accent' : 'warn'} />
       </div>
 
@@ -4320,7 +4421,7 @@ function SettingsSection({ telegram, profile, user }) {
               Telegram haptics
             </div>
             <h3 className="mt-2 text-xl font-black tracking-[-0.035em] text-[var(--tg-text-color)]">
-              {telegram.hapticsEnabled ? 'Feedback is on' : 'Feedback is muted'}
+              {hapticsEnabled ? 'Feedback is on' : 'Feedback is muted'}
             </h3>
             <p className="mt-2 text-sm leading-6 text-[var(--tg-subtitle-text-color)]">
               Controls tactile feedback for Mini App buttons and successful actions on Telegram clients that support haptics.
@@ -4329,11 +4430,11 @@ function SettingsSection({ telegram, profile, user }) {
           <button
             type="button"
             role="switch"
-            aria-checked={telegram.hapticsEnabled}
+            aria-checked={hapticsEnabled}
             aria-label="Telegram haptics"
             onClick={toggleHaptics}
             className={`flex h-12 w-24 shrink-0 items-center rounded-full p-1 transition active:scale-95 ${
-              telegram.hapticsEnabled
+              hapticsEnabled
                 ? 'justify-end bg-[var(--tg-button-color)]'
                 : 'justify-start bg-[var(--tg-secondary-bg-color)]'
             }`}
@@ -4401,6 +4502,165 @@ function SettingsSection({ telegram, profile, user }) {
   );
 }
 
+function TelegramLaunchNotice({ telegramAuthState }) {
+  const authFailed = telegramAuthState === 'failed';
+
+  return (
+    <section
+      aria-label="Telegram launch required"
+      className="overflow-hidden rounded-[30px] border border-[var(--tg-button-color)]/25 bg-[var(--tg-section-bg-color)] shadow-[0_18px_50px_rgba(15,23,42,0.12)]"
+    >
+      <div className="grid gap-4 p-5 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="flex min-w-0 gap-4">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] bg-[var(--tg-button-color)] text-[var(--tg-button-text-color)]">
+            <Bot size={22} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--tg-button-color)]">
+              Telegram required
+            </p>
+            <h2 className="mt-1 text-2xl font-black tracking-[-0.04em] text-[var(--tg-text-color)]">
+              Open Transferly from Telegram
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-[var(--tg-subtitle-text-color)]">
+              {authFailed
+                ? 'Telegram sign-in could not be verified. Relaunch from the bot so orders, wallet actions, and receipts attach to your account.'
+                : 'Browser preview is available, but wallet actions, receipt history, and orders need a Telegram session from the bot.'}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          <a
+            href={TELEGRAM_BOT_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-[var(--tg-button-color)] px-4 py-3 text-sm font-black text-[var(--tg-button-text-color)] transition active:scale-[0.98]"
+          >
+            Open in Telegram
+            <ArrowRight size={16} />
+          </a>
+          <Link
+            to="/miniapp/support?from=telegram-launch"
+            className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-black text-[var(--tg-text-color)] transition active:scale-[0.98]"
+          >
+            Support
+            <LifeBuoy size={16} />
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SessionHealthStrip({ telegram, telegramAuthState, loading, user, profile }) {
+  const points = Number(profile?.points || 0).toLocaleString();
+  const sessionLabel = (() => {
+    if (telegramAuthState === 'failed') {
+      return 'Verification failed';
+    }
+
+    if (telegramAuthState === 'authenticating' || (telegram.available && loading)) {
+      return 'Checking';
+    }
+
+    if (telegramAuthState === 'authenticated' && user?.id) {
+      return 'Verified';
+    }
+
+    if (telegram.available && !user?.id) {
+      return 'Link required';
+    }
+
+    return 'Preview mode';
+  })();
+
+  const sessionDetail = (() => {
+    if (telegramAuthState === 'failed') {
+      return 'Relaunch from the bot';
+    }
+
+    if (telegramAuthState === 'authenticating' || (telegram.available && loading)) {
+      return 'Validating launch data';
+    }
+
+    if (telegramAuthState === 'authenticated' && user?.id) {
+      return 'Account session active';
+    }
+
+    if (telegram.available) {
+      return 'Attach wallet session';
+    }
+
+    return 'Browser controls limited';
+  })();
+
+  const items = [
+    {
+      label: telegram.available ? 'Telegram launch' : 'Browser launch',
+      detail: telegram.available ? 'WebApp detected' : 'Open from Telegram',
+      icon: Bot,
+      tone: telegram.available ? 'success' : 'warn'
+    },
+    {
+      label: sessionLabel,
+      detail: sessionDetail,
+      icon: telegramAuthState === 'failed' ? AlertCircle : ShieldCheck,
+      tone: telegramAuthState === 'failed' ? 'danger' : user?.id ? 'success' : 'warn'
+    },
+    {
+      label: user?.id ? `${points} pts` : 'Wallet locked',
+      detail: user?.id ? 'Balance ready' : 'Session required',
+      icon: WalletCards,
+      tone: user?.id ? 'success' : 'warn'
+    },
+    {
+      label: loading ? 'Syncing' : user?.id ? 'Online' : 'Limited',
+      detail: loading ? 'Refreshing account' : user?.id ? 'API connected' : 'Read-only preview',
+      icon: loading ? Clock3 : CheckCircle2,
+      tone: user?.id ? 'success' : 'info'
+    }
+  ];
+
+  return (
+    <section
+      aria-label="Mini app session health"
+      className="rounded-[30px] bg-[var(--tg-section-bg-color)] p-4 shadow-sm"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--tg-hint-color)]">Session health</p>
+          <h2 className="mt-1 text-xl font-black text-[var(--tg-text-color)]">Wallet readiness</h2>
+        </div>
+        <Link
+          to="/miniapp/settings?from=session-health"
+          className="inline-flex items-center gap-2 rounded-full bg-[var(--tg-secondary-bg-color)] px-3 py-2 text-xs font-black text-[var(--tg-text-color)]"
+        >
+          Settings
+          <Settings size={14} />
+        </Link>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-4">
+        {items.map((item) => {
+          const Icon = item.icon;
+          const toneClass = item.tone === 'danger'
+            ? 'text-[var(--tg-destructive-text-color)]'
+            : item.tone === 'success'
+              ? 'text-[var(--tg-button-color)]'
+              : 'text-[var(--tg-hint-color)]';
+
+          return (
+            <div key={item.label} className="rounded-[22px] bg-[var(--tg-secondary-bg-color)] p-3">
+              <Icon className={toneClass} size={18} />
+              <p className="mt-3 text-sm font-black text-[var(--tg-text-color)]">{item.label}</p>
+              <p className="mt-1 text-xs font-bold text-[var(--tg-subtitle-text-color)]">{item.detail}</p>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export default function MiniAppPage() {
   const { section = 'home', slug = '' } = useParams();
   const navigate = useNavigate();
@@ -4409,10 +4669,12 @@ export default function MiniAppPage() {
   const {
     config,
     user,
+    loading,
     profile,
     receipts,
     topUpOrders,
-    paymentIssues
+    paymentIssues,
+    telegramAuthState
   } = useAppContext();
   const activeSection = sectionMeta[section] ? section : 'home';
   const queryService = useMemo(() => {
@@ -4425,6 +4687,7 @@ export default function MiniAppPage() {
   const meta = activeService
     ? { title: activeService.title, subtitle: 'Service details' }
     : sectionMeta[activeSection];
+  const showTelegramLaunchNotice = !loading && !user?.id && telegramAuthState !== 'authenticating';
 
   useEffect(() => {
     if (activeSection !== 'home' || !telegram.startParam) {
@@ -4445,7 +4708,7 @@ export default function MiniAppPage() {
       case 'invoices':
         return { text: 'Create Invoice', action: () => navigate('/miniapp/invoices') };
       case 'payouts':
-        return { text: 'Create Payout', action: () => navigate('/miniapp/payouts') };
+        return { text: 'Request Payout', action: () => navigate('/miniapp/payouts') };
       case 'activity':
         return { text: 'Open Alerts', action: () => navigate('/miniapp/notifications') };
       case 'analytics':
@@ -4459,11 +4722,11 @@ export default function MiniAppPage() {
       case 'security':
         return { text: 'Open Settings', action: () => navigate('/miniapp/settings?from=security') };
       case 'vault':
-        return { text: 'Open Full History', action: () => navigate('/transactions') };
+        return { text: 'Open Full History', action: () => navigate('/miniapp/vault') };
       case 'orders':
         return { text: 'Search Orders', action: () => navigate('/miniapp/orders') };
       case 'wallet':
-        return { text: 'Create Point Order', action: () => navigate('/buy-point') };
+        return { text: 'Create Point Order', action: () => navigate('/miniapp/wallet') };
       case 'ops':
         return { text: profile?.is_admin ? 'Open Admin Ops' : 'Request Access', action: () => navigate(profile?.is_admin ? '/admin' : '/miniapp/support') };
       default:
@@ -4499,6 +4762,16 @@ export default function MiniAppPage() {
 
   return (
     <MiniAppShell title={meta.title} subtitle={meta.subtitle} immersive={isPayPalWalletService}>
+      {!isPayPalWalletService ? (
+        <SessionHealthStrip
+          telegram={telegram}
+          telegramAuthState={telegramAuthState}
+          loading={loading}
+          user={user}
+          profile={profile}
+        />
+      ) : null}
+      {showTelegramLaunchNotice ? <TelegramLaunchNotice telegramAuthState={telegramAuthState} /> : null}
       {activeSection === 'home' ? (
         <HomeSection profile={profile} telegram={telegram} receipts={receipts} topUpOrders={topUpOrders} />
       ) : null}

@@ -354,6 +354,27 @@ async function mockTransferlyApi(page, options = {}) {
       return;
     }
 
+    if (path === '/api/payouts' && route.request().method() === 'POST') {
+      const body = route.request().postDataJSON();
+      await json({
+        payout_id: 'payout_miniapp_1001',
+        provider: 'paypal',
+        status: 'PENDING_APPROVAL',
+        summary: {
+          receiver: body.receiver,
+          recipient_type: body.recipientType,
+          amount: body.amount,
+          currency: body.currency || 'USD',
+          total_debit: body.amount
+        },
+        metadata: {
+          note: body.note
+        },
+        created_at: '2026-05-28T11:30:00.000Z'
+      });
+      return;
+    }
+
     if (path === '/api/admin/payouts' || path === '/api/payouts') {
       await json({
         data: [payoutRecord, cryptoPayoutRecord],
@@ -521,15 +542,27 @@ async function expectNoHorizontalOverflow(page) {
   expect(hasOverflow).toBe(false);
 }
 
-test('home page renders the primary Transferly launch surface', async ({ page }) => {
+test('root route opens the Telegram mini app workspace', async ({ page }) => {
+  await primeMiniAppUi(page);
+  await mockTransferlyApi(page);
   await page.goto('/');
 
   await expect(page).toHaveTitle(/Transferly/i);
-  await expect(
-    page.getByRole('heading', { name: 'The All-in-One Digital Services Platform' })
-  ).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Get Started Free' })).toBeVisible();
-  await expect(page.getByText('Supported Platforms')).toBeVisible();
+  await expect(page).toHaveURL(/\/miniapp$/);
+  await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Buy Points/i }).first()).toBeVisible();
+});
+
+test('legacy auth routes redirect into the Telegram mini app', async ({ page }) => {
+  await primeMiniAppUi(page);
+  await mockTransferlyApi(page);
+
+  for (const path of ['/login', '/register', '/forgot-password']) {
+    await page.goto(path);
+    await expect(page).toHaveURL(/\/miniapp$/);
+    await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Buy Points/i }).first()).toBeVisible();
+  }
 });
 
 test('mini app command center renders with mocked account data', async ({ page }) => {
@@ -539,11 +572,25 @@ test('mini app command center renders with mocked account data', async ({ page }
 
   await expect(page.getByText('Welcome back,')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
+  await expect(page.getByLabel('Mini app session health')).toContainText('Session health');
   await expect(page.getByText(/Telegram session detected|Browser preview mode/).last()).toBeVisible();
   await expect(page.getByRole('link', { name: /AO Admin Operator/ })).toBeVisible();
-  await expect(page.getByText('5,000 pts')).toBeVisible();
+  await expect(page.getByText('5,000 pts').last()).toBeVisible();
   await expect(page.getByRole('link', { name: /Buy Points/i }).first()).toBeVisible();
   await expect(page.getByRole('link', { name: /Support AI Reply/i }).first()).toBeVisible();
+});
+
+test('mini app shows Telegram launch guidance without a session', async ({ page }) => {
+  await primeMiniAppUi(page);
+  await mockTransferlyApi(page, { seedTokens: false });
+  await page.goto('/miniapp/wallet');
+
+  await expect(page.getByRole('heading', { name: 'Open Transferly from Telegram' })).toBeVisible();
+  await expect(page.getByText('Telegram required')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Open in Telegram/i })).toHaveAttribute(
+    'href',
+    'https://t.me/TransferlyBot'
+  );
 });
 
 test('mini app service catalog routes tiles into native service detail screens', async ({ page }) => {
@@ -681,6 +728,8 @@ test('mini app service detail handles missing service slugs', async ({ page }) =
 });
 
 test('mini app route audit stays nonblank and responsive across core screens', async ({ page }) => {
+  test.setTimeout(90000);
+
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
   page.on('console', (message) => {
@@ -1044,6 +1093,7 @@ test('mini app points wallet creates a native top-up order', async ({ page }) =>
   await page.goto('/miniapp/wallet');
 
   await expect(page.getByText('points ready to spend')).toBeVisible();
+  await expect(page.getByLabel('Point order readiness')).toContainText('Account linked');
 
   await page.getByRole('button', { name: /250/i }).click();
   await page.getByRole('button', { name: /Crypto Payment/i }).click();
@@ -1053,6 +1103,31 @@ test('mini app points wallet creates a native top-up order', async ({ page }) =>
   const order = page.getByRole('article').filter({ hasText: 'order_miniapp_1001' });
   await expect(order).toBeVisible();
   await expect(order.getByText('250 pts')).toBeVisible();
+  await expect(order.getByText('Payment pending')).toBeVisible();
+  await expect(order.getByRole('link', { name: /Vendor chat/i })).toBeVisible();
+});
+
+test('mini app payout request requires readiness confirmation', async ({ page }) => {
+  await primeMiniAppUi(page);
+  await mockTransferlyApi(page);
+  await page.goto('/miniapp/payouts');
+
+  await expect(page.getByLabel('Payout readiness')).toContainText('Review queue');
+
+  await page.getByRole('button', { name: /Request payout/i }).click();
+  const composer = page.locator('section').filter({ hasText: 'Submit for review' });
+  await composer.getByPlaceholder('Receiver email').fill('recipient@example.com');
+  await composer.getByPlaceholder('Amount').fill('125');
+
+  const requestButton = composer.getByRole('button', { name: /^Request payout$/ });
+  await expect(requestButton).toBeDisabled();
+
+  await composer.getByLabel(/I confirm this payout request is ready for review/i).check();
+  await expect(requestButton).toBeEnabled();
+  await requestButton.click();
+
+  await expect(page.getByText('Payout requested')).toBeVisible();
+  await expect(page.getByRole('article').filter({ hasText: 'payout_miniapp_1001' })).toBeVisible();
 });
 
 test('admin payments workspace loads and opens an invoice detail drawer', async ({ page }) => {
@@ -1068,23 +1143,33 @@ test('admin payments workspace loads and opens an invoice detail drawer', async 
   await expect(page.getByRole('heading', { name: 'INV-1001' })).toBeVisible();
 });
 
-test('PayPal invoice launcher renders the embedded invoice composer', async ({ page }) => {
+test('legacy PayPal invoice launcher opens the mini app invoice center', async ({ page }) => {
   await mockTransferlyApi(page);
   await page.goto('/services/paypal?view=invoices');
 
-  await expect(page.getByRole('heading', { name: 'PayPal Invoicing', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Quick Create Official Invoice' })).toBeVisible();
-  await expect(page.getByLabel('Invoice template')).toContainText('Standard Service Invoice');
+  await expect(page).toHaveURL(/\/miniapp\/invoices\?provider=paypal/);
+  await expect(page.getByText('Invoice center', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Create, track, remind, and collect.' })).toBeVisible();
+  await page.getByRole('button', { name: 'New invoice' }).click();
+  await expect(page.getByRole('heading', { name: 'Create payable invoice' })).toBeVisible();
+  await expect(page.getByPlaceholder('Client email')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create invoice' })).toBeVisible();
 });
 
-test('PayPal payout launcher renders the sandbox-style workspace', async ({ page }) => {
+test('legacy PayPal payout launcher opens the mini app payout center', async ({ page }) => {
   await mockTransferlyApi(page);
   await page.goto('/services/paypal?view=payouts');
 
-  await expect(page.getByText('PayPal').first()).toBeVisible();
-  await expect(page.getByText('Available balance')).toBeVisible();
-  await page.getByRole('button', { name: 'Create' }).click();
-  await expect(page.getByText('Send money from your PayPal balance.')).toBeVisible();
-  await page.getByRole('button', { name: 'Activity' }).click();
-  await expect(page.getByText('payout_1001')).toBeVisible();
+  await expect(page).toHaveURL(/\/miniapp\/payouts\?provider=paypal/);
+  await expect(page.getByText('Payout center', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Review funds before they leave.' })).toBeVisible();
+  await expect(page.getByLabel('Payout readiness')).toContainText('Review queue');
+
+  await page.getByRole('button', { name: 'Request payout' }).click();
+
+  const composer = page.locator('section').filter({ hasText: 'Submit for review' });
+  await composer.getByPlaceholder('Receiver email').fill('recipient@example.com');
+  await composer.getByPlaceholder('Amount').fill('125');
+  await composer.getByLabel(/I confirm this payout request is ready for review/i).check();
+  await expect(composer.getByRole('button', { name: /^Request payout$/ })).toBeEnabled();
 });

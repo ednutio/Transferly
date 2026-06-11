@@ -19,7 +19,7 @@ export default function Navbar() {
   const handleLogout = () => {
     logout();
     setMobileOpen(false);
-    navigate('/');
+    navigate('/miniapp');
   };
 
   return (
@@ -65,17 +65,11 @@ export default function Navbar() {
           ) : (
             <>
               <Link
-                to="/login"
-                className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-white/70 transition hover:bg-white/8 hover:text-white"
-              >
-                Sign in
-              </Link>
-              <Link
-                to="/register"
+                to="/miniapp"
                 className="rounded-full px-4 py-2 text-sm font-bold text-white transition hover:opacity-90"
                 style={{ backgroundColor: brand }}
               >
-                Get Started
+                Open Mini App
               </Link>
             </>
           )}
@@ -121,19 +115,12 @@ export default function Navbar() {
             ) : (
               <>
                 <Link
-                  to="/login"
-                  onClick={() => setMobileOpen(false)}
-                  className="block rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-white/75"
-                >
-                  Sign in
-                </Link>
-                <Link
-                  to="/register"
+                  to="/miniapp"
                   onClick={() => setMobileOpen(false)}
                   className="block rounded-2xl px-4 py-3 text-sm font-bold text-white"
                   style={{ backgroundColor: brand }}
                 >
-                  Get Started
+                  Open Mini App
                 </Link>
               </>
             )}

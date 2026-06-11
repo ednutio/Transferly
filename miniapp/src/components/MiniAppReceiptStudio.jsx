@@ -334,6 +334,14 @@ function ReceiptPreview({ mode, service, bankForm, emailForm }) {
 export default function MiniAppReceiptStudio() {
   const { addReceipt, config, profile, receipts, user } = useAppContext();
   const telegram = useTelegramMiniApp();
+  const {
+    configureClosingConfirmation,
+    configureMainButton,
+    configureVerticalSwipe,
+    impact,
+    notify,
+    webApp
+  } = telegram;
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState('bank');
   const [selectedSlug, setSelectedSlug] = useState(bankServices[0]?.slug || 'opay');
@@ -443,7 +451,7 @@ export default function MiniAppReceiptStudio() {
     }
 
     if (!authenticated) {
-      toast.error('Sign in or open from Telegram to generate receipts');
+      toast.error('Open Transferly from Telegram to generate receipts');
       return;
     }
 
@@ -458,8 +466,8 @@ export default function MiniAppReceiptStudio() {
     }
 
     setGenerating(true);
-    telegram.impact('medium');
-    telegram.webApp?.MainButton?.showProgress?.();
+    impact('medium');
+    webApp?.MainButton?.showProgress?.();
 
     try {
       const payload = mode === 'bank'
@@ -469,22 +477,22 @@ export default function MiniAppReceiptStudio() {
 
       if (result?.error) {
         toast.error(result.error);
-        telegram.notify('error');
+        notify('error');
         return;
       }
 
       setGeneratedReceipt(result);
       setStep(2);
-      telegram.notify('success');
+      notify('success');
       toast.success('Receipt generated and saved');
     } catch (_error) {
-      telegram.notify('error');
+      notify('error');
       toast.error('Failed to generate receipt');
     } finally {
       setGenerating(false);
-      telegram.webApp?.MainButton?.hideProgress?.();
+      webApp?.MainButton?.hideProgress?.();
     }
-  }, [addReceipt, authenticated, bankForm, cost, emailForm, generating, hasEnoughPoints, mode, points, qualityChecks, selectedService.title, telegram]);
+  }, [addReceipt, authenticated, bankForm, cost, emailForm, generating, hasEnoughPoints, impact, mode, notify, points, qualityChecks, selectedService.title, webApp]);
 
   const goForward = useCallback(() => {
     if (step < 2) {
@@ -493,12 +501,12 @@ export default function MiniAppReceiptStudio() {
         return;
       }
       setStep((current) => current + 1);
-      telegram.impact('light');
+      impact('light');
       return;
     }
 
     handleGenerate();
-  }, [canContinue, handleGenerate, step, telegram]);
+  }, [canContinue, handleGenerate, impact, step]);
 
   const createAnother = () => {
     setGeneratedReceipt(null);
@@ -526,8 +534,8 @@ export default function MiniAppReceiptStudio() {
   };
 
   useEffect(() => {
-    const button = telegram.webApp?.MainButton;
-    if (!button && !telegram.configureMainButton) {
+    const button = webApp?.MainButton;
+    if (!button && !configureMainButton) {
       return undefined;
     }
 
@@ -540,23 +548,23 @@ export default function MiniAppReceiptStudio() {
     };
 
     const text = generatedReceipt ? 'Create Another' : step < 2 ? 'Continue' : 'Generate Receipt';
-    return telegram.configureMainButton?.({
+    return configureMainButton?.({
       text,
       enabled: canContinue || Boolean(generatedReceipt),
       loading: generating,
       onClick: handleClick
     });
-  }, [canContinue, generatedReceipt, generating, goForward, step, telegram]);
+  }, [canContinue, configureMainButton, generatedReceipt, generating, goForward, step, webApp]);
 
   useEffect(() => {
-    telegram.configureClosingConfirmation?.(hasDraft);
-    telegram.configureVerticalSwipe?.(step !== 1);
+    configureClosingConfirmation?.(hasDraft);
+    configureVerticalSwipe?.(step !== 1);
 
     return () => {
-      telegram.configureClosingConfirmation?.(false);
-      telegram.configureVerticalSwipe?.(true);
+      configureClosingConfirmation?.(false);
+      configureVerticalSwipe?.(true);
     };
-  }, [hasDraft, step, telegram]);
+  }, [configureClosingConfirmation, configureVerticalSwipe, hasDraft, step]);
 
   return (
     <div className="space-y-4">
@@ -731,7 +739,7 @@ export default function MiniAppReceiptStudio() {
               </div>
               {!authenticated ? (
                 <p className="mt-4 rounded-[18px] bg-[color-mix(in_srgb,var(--tg-destructive-text-color)_10%,var(--tg-secondary-bg-color))] p-3 text-xs font-bold leading-5 text-[var(--tg-destructive-text-color)]">
-                  Sign in on the web or open from Telegram before generating.
+                  Open Transferly from Telegram before generating.
                 </p>
               ) : null}
               {authenticated && !hasEnoughPoints ? (

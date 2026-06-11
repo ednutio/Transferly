@@ -1,4 +1,7 @@
+import { getRawTelegramInitData, getTelegramStartParam } from './telegramMiniApp';
+
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const API_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_API_REQUEST_TIMEOUT_MS || 15000);
 const TOKEN_STORAGE_KEY = 'transferly_api_token';
 const ADMIN_TOKEN_STORAGE_KEY = 'transferly_admin_api_token';
 const LEGACY_TOKEN_STORAGE_KEY = 'slipcraft_api_token';
@@ -85,7 +88,7 @@ function getStoredTokenForPath(path) {
     return getStoredAdminToken() || getStoredToken();
   }
 
-  if (path === '/api/me') {
+  if (path === '/api/me' || path === '/api/me/command-center') {
     return getStoredToken() || getStoredAdminToken();
   }
 
@@ -100,9 +103,53 @@ function createIdempotencyKey(prefix) {
   return `${prefix}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
 }
 
+function createRequestId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  return `miniapp:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
+function createRequestSignal(parentSignal) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+
+  if (parentSignal?.aborted) {
+    abort();
+  } else {
+    parentSignal?.addEventListener('abort', abort, { once: true });
+  }
+
+  const timeout = window.setTimeout(abort, API_REQUEST_TIMEOUT_MS);
+
+  return {
+    signal: controller.signal,
+    cleanup() {
+      window.clearTimeout(timeout);
+      parentSignal?.removeEventListener('abort', abort);
+    }
+  };
+}
+
 export async function apiRequest(path, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.set('Accept', 'application/json');
+  headers.set('X-Transferly-Client', 'telegram-miniapp');
+
+  if (!headers.has('X-Request-Id')) {
+    headers.set('X-Request-Id', createRequestId());
+  }
+
+  const telegramInitData = getRawTelegramInitData();
+  if (telegramInitData && !headers.has('X-Telegram-Init-Data')) {
+    headers.set('X-Telegram-Init-Data', telegramInitData);
+  }
+
+  const telegramStartParam = getTelegramStartParam();
+  if (telegramStartParam && !headers.has('X-Telegram-Start-Param')) {
+    headers.set('X-Telegram-Start-Param', telegramStartParam);
+  }
 
   let body = options.body;
   if (body && typeof body === 'object' && !(body instanceof FormData)) {
@@ -115,13 +162,28 @@ export async function apiRequest(path, options = {}) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(buildUrl(path), {
-    ...options,
-    headers,
-    body
-  });
+  const requestSignal = createRequestSignal(options.signal);
+  const requestId = headers.get('X-Request-Id');
+  let response;
+
+  try {
+    response = await fetch(buildUrl(path), {
+      ...options,
+      headers,
+      body,
+      signal: requestSignal.signal
+    });
+  } catch (error) {
+    const requestError = new Error(error.name === 'AbortError' ? 'Request timed out. Please try again.' : 'Unable to reach Transferly. Please check your connection.');
+    requestError.code = error.name === 'AbortError' ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR';
+    requestError.requestId = requestId;
+    throw requestError;
+  } finally {
+    requestSignal.cleanup();
+  }
 
   const payload = await parseJsonSafely(response);
+  const responseRequestId = response.headers.get('x-request-id') || payload?.requestId || requestId;
 
   if (!response.ok) {
     const error = new Error(
@@ -131,6 +193,8 @@ export async function apiRequest(path, options = {}) {
     );
     error.status = response.status;
     error.payload = payload;
+    error.code = payload?.code;
+    error.requestId = responseRequestId;
     throw error;
   }
 
@@ -145,6 +209,10 @@ export function getMe() {
   return apiRequest('/api/me');
 }
 
+export function getMiniAppCommandCenter() {
+  return apiRequest('/api/me/command-center');
+}
+
 export function getServiceCommandCenterSummary(slug) {
   return apiRequest(`/api/services/${encodeURIComponent(slug)}/command-center`);
 }
@@ -157,25 +225,6 @@ export function createServiceLaneActionIntent(slug, laneId, payload = {}) {
   return apiRequest(`/api/services/${encodeURIComponent(slug)}/lanes/${encodeURIComponent(laneId)}/actions`, {
     method: 'POST',
     body: payload
-  });
-}
-
-export function login(email, password) {
-  return apiRequest('/api/auth/login', {
-    method: 'POST',
-    body: { email, password }
-  });
-}
-
-export function register({ name, email, password, referralCode }) {
-  return apiRequest('/api/auth/register', {
-    method: 'POST',
-    body: {
-      name,
-      email,
-      password,
-      referralCode: referralCode || undefined
-    }
   });
 }
 
@@ -207,13 +256,6 @@ export function updateProfile(payload) {
   return apiRequest('/api/user/me/profile', {
     method: 'PATCH',
     body: payload
-  });
-}
-
-export function changePassword(newPassword) {
-  return apiRequest('/api/user/me/password', {
-    method: 'POST',
-    body: { newPassword }
   });
 }
 

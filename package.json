@@ -9,6 +9,8 @@
     "test": "npm test --prefix api && npm test --prefix bot",
     "build": "npm run build --prefix miniapp",
     "verify": "npm run lint --prefix api && npm test --prefix api && npm test --prefix bot && npm run build --prefix miniapp",
+    "check:production": "node scripts/check-production-readiness.js",
+    "verify:release": "npm run verify && npm run check:production",
     "api:dev": "npm run dev --prefix api",
     "api:worker": "npm run dev:worker --prefix api",
     "api:migrate": "npm run db:migrate --prefix api",

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bot,
@@ -25,19 +25,19 @@ import { useAppContext } from '../context/AppContext';
 import { useTelegramMiniApp } from '../context/TelegramMiniAppContext';
 
 const railItems = [
-  { label: 'Dashboard', to: '/miniapp', icon: Home },
+  { label: 'Wallet Home', to: '/miniapp', icon: Home },
   { label: 'Services', to: '/miniapp/services', icon: Sparkles },
-  { label: 'Transactions', to: '/miniapp/vault', icon: Clock3 },
-  { label: 'Flash Mail', to: '/miniapp/studio', icon: Mail },
+  { label: 'Vault', to: '/miniapp/vault', icon: Clock3 },
+  { label: 'Studio', to: '/miniapp/studio', icon: Mail },
   { label: 'Referral', to: '/miniapp/profile', icon: Users },
   { label: 'Settings', to: '/miniapp/settings', icon: Settings }
 ];
 
 const bottomItems = [
-  { label: 'Home', to: '/miniapp', icon: Home },
+  { label: 'Wallet', to: '/miniapp', icon: Home },
   { label: 'Services', to: '/miniapp/services', icon: Sparkles },
-  { label: 'Mail', to: '/miniapp/studio', icon: Mail },
-  { label: 'Wallet', to: '/miniapp/wallet', icon: WalletCards },
+  { label: 'Studio', to: '/miniapp/studio', icon: Mail },
+  { label: 'Points', to: '/miniapp/wallet', icon: WalletCards },
   { label: 'Settings', to: '/miniapp/settings', icon: Settings }
 ];
 
@@ -85,6 +85,22 @@ function getSessionLabel(telegram, telegramAuthState) {
   return 'Telegram session detected';
 }
 
+function getSessionTone(telegram, telegramAuthState, user) {
+  if (telegramAuthState === 'failed') {
+    return 'text-[var(--tg-destructive-text-color)]';
+  }
+
+  if (telegram.available && telegramAuthState === 'authenticated' && user?.id) {
+    return 'text-emerald-500';
+  }
+
+  if (telegram.available || telegramAuthState === 'authenticating') {
+    return 'text-[var(--tg-button-color)]';
+  }
+
+  return 'text-[var(--miniapp-shell-text-muted)]';
+}
+
 function readStoredThemeMode() {
   if (typeof window === 'undefined') {
     return 'dark';
@@ -103,12 +119,14 @@ export default function MiniAppShell({
   const navigate = useNavigate();
   const { user, profile, telegramAuthState } = useAppContext();
   const telegram = useTelegramMiniApp();
+  const { configureBackButton, configureSettingsButton, impact } = telegram;
   const isRoot = location.pathname === '/miniapp';
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [themeMode, setThemeMode] = useState(readStoredThemeMode);
   const displayName = formatName(telegram.user, profile, user);
   const initials = initialsFromName(displayName);
   const sessionLabel = getSessionLabel(telegram, telegramAuthState);
+  const sessionTone = getSessionTone(telegram, telegramAuthState, user);
   const points = Number(profile?.points || 0);
   const currentScreen = isRoot ? 'home' : location.pathname.replace('/miniapp/', '') || 'home';
   const settingsPath = `/miniapp/settings?from=${encodeURIComponent(currentScreen)}`;
@@ -155,7 +173,7 @@ export default function MiniAppShell({
       // Ignore storage restrictions in embedded webviews.
     }
 
-    telegram.impact('light');
+    impact('light');
   };
 
   useEffect(() => {
@@ -170,50 +188,36 @@ export default function MiniAppShell({
     }
   }, [isRoot]);
 
-  useEffect(() => {
-    const backButton = telegram.webApp?.BackButton;
-    if (!backButton) {
-      return undefined;
-    }
-
-    const handleBack = () => {
-      if (window.history.length > 1 && !isRoot) {
-        navigate(-1);
-      } else {
-        navigate('/miniapp');
-      }
-    };
-
-    if (isRoot) {
-      backButton.hide?.();
+  const handleNativeBack = useCallback(() => {
+    if (window.history.length > 1 && !isRoot) {
+      navigate(-1);
     } else {
-      backButton.show?.();
+      navigate('/miniapp');
     }
-
-    backButton.onClick?.(handleBack);
-
-    return () => {
-      backButton.offClick?.(handleBack);
-    };
-  }, [isRoot, navigate, telegram.webApp]);
+  }, [isRoot, navigate]);
 
   useEffect(() => {
-    const cleanup = telegram.configureSettingsButton?.({
+    return configureBackButton?.({
+      visible: !isRoot,
+      onClick: handleNativeBack
+    });
+  }, [configureBackButton, handleNativeBack, isRoot]);
+
+  const handleNativeSettings = useCallback(() => {
+    impact('light');
+    navigate(settingsPath);
+  }, [impact, navigate, settingsPath]);
+
+  useEffect(() => {
+    const cleanup = configureSettingsButton?.({
       visible: true,
-      onClick: () => {
-        telegram.impact('light');
-        navigate(settingsPath);
-      }
+      onClick: handleNativeSettings
     });
 
     return () => {
       cleanup?.();
-
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/miniapp')) {
-        telegram.webApp?.SettingsButton?.hide?.();
-      }
     };
-  }, [navigate, settingsPath, telegram]);
+  }, [configureSettingsButton, handleNativeSettings]);
 
   const renderNavItem = (item, compact = false) => {
     const Icon = item.icon;
@@ -226,16 +230,25 @@ export default function MiniAppShell({
         key={item.to}
         to={item.to}
         onClick={() => telegram.impact('light')}
-        className={`group flex items-center justify-center transition active:scale-[0.97] ${
+        className={`miniapp-pressable group relative flex items-center justify-center overflow-hidden ${
           compact
-            ? `h-14 flex-col gap-1 rounded-[18px] text-[10px] font-black ${active ? 'bg-[var(--tg-button-color)] text-[var(--tg-button-text-color)]' : 'text-[var(--miniapp-nav-idle-text)]'}`
-            : `h-12 w-12 rounded-[19px] ${active ? 'bg-[var(--miniapp-nav-active-bg)] text-[var(--miniapp-nav-active-text)]' : 'text-[var(--miniapp-nav-idle-text)] hover:bg-[var(--miniapp-nav-hover-bg)] hover:text-[var(--miniapp-shell-text)]'}`
+            ? `h-14 flex-col gap-1 rounded-[18px] text-[10px] font-black ${active ? 'bg-[var(--tg-button-color)] text-[var(--tg-button-text-color)] shadow-[0_12px_28px_rgba(248,129,45,0.28)]' : 'text-[var(--miniapp-nav-idle-text)] hover:bg-[var(--miniapp-nav-hover-bg)]'}`
+            : `h-12 w-12 rounded-[19px] ${active ? 'bg-[var(--miniapp-nav-active-bg)] text-[var(--miniapp-nav-active-text)] shadow-[0_14px_32px_rgba(0,0,0,0.16)]' : 'text-[var(--miniapp-nav-idle-text)] hover:bg-[var(--miniapp-nav-hover-bg)] hover:text-[var(--miniapp-shell-text)]'}`
         }`}
         aria-label={item.label}
         title={item.label}
       >
-        <Icon size={compact ? 18 : 20} />
-        {compact ? <span>{item.label}</span> : null}
+        {active ? (
+          <span
+            className={`absolute rounded-full ${
+              compact
+                ? 'inset-x-5 top-1 h-0.5 bg-current/45'
+                : 'left-1 top-1/2 h-5 w-1 -translate-y-1/2 bg-[var(--tg-button-color)]'
+            }`}
+          />
+        ) : null}
+        <Icon size={compact ? 18 : 20} className="relative z-10" />
+        {compact ? <span className="relative z-10">{item.label}</span> : null}
       </Link>
     );
   };
@@ -251,10 +264,10 @@ export default function MiniAppShell({
   return (
     <div className={`transferly-miniapp-skin ${lightMode ? 'transferly-miniapp-skin-light' : ''} min-h-screen text-[var(--tg-text-color)]`}>
       <div className="flex min-h-screen w-full">
-        <aside className="sticky top-0 hidden h-screen w-[86px] shrink-0 flex-col items-center border-r border-[var(--miniapp-border-color)] bg-[var(--miniapp-shell-bg)] px-3 py-4 md:flex">
+        <aside className="miniapp-elevated-surface sticky top-0 hidden h-screen w-[86px] shrink-0 flex-col items-center border-r border-[var(--miniapp-border-color)] bg-[var(--miniapp-shell-bg)] px-3 py-4 backdrop-blur-2xl md:flex">
           <Link
             to="/miniapp"
-            className="flex h-[52px] w-[52px] items-center justify-center rounded-[23px] bg-[var(--tg-button-color)] text-sm font-black text-[var(--tg-button-text-color)] shadow-[0_18px_44px_rgba(248,129,45,0.34)]"
+            className="miniapp-pressable flex h-[52px] w-[52px] items-center justify-center rounded-[23px] bg-[var(--tg-button-color)] text-sm font-black text-[var(--tg-button-text-color)] shadow-[0_18px_44px_rgba(248,129,45,0.34)]"
             aria-label="Transferly dashboard"
           >
             TR
@@ -268,7 +281,7 @@ export default function MiniAppShell({
             href="https://t.me/+DhQqLRVqOHpmMmQ0"
             target="_blank"
             rel="noreferrer"
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-[#229ed9] text-white shadow-[0_18px_40px_rgba(34,158,217,0.24)]"
+            className="miniapp-pressable flex h-12 w-12 items-center justify-center rounded-full bg-[#229ed9] text-white shadow-[0_18px_40px_rgba(34,158,217,0.24)]"
             aria-label="Open Telegram community"
           >
             <MessageCircle size={20} />
@@ -276,20 +289,20 @@ export default function MiniAppShell({
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col pb-[calc(84px+env(safe-area-inset-bottom))] md:pb-0">
-          <header className="sticky top-0 z-30 border-b border-[var(--miniapp-border-color)] bg-[var(--miniapp-header-bg)] px-4 py-3 backdrop-blur-2xl md:px-6">
+          <header className="sticky top-0 z-30 border-b border-[var(--miniapp-border-color)] bg-[var(--miniapp-header-bg)] px-4 py-3 shadow-[0_12px_44px_rgba(0,0,0,0.12)] backdrop-blur-2xl md:px-6">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <button
                   type="button"
                   onClick={() => (isRoot ? telegram.webApp?.close?.() : navigate(-1))}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--miniapp-border-color)] bg-[var(--miniapp-panel-bg)] text-[var(--miniapp-shell-text-muted)] transition active:scale-95 md:hidden"
+                  className="miniapp-pressable flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--miniapp-border-color)] bg-[var(--miniapp-panel-bg)] text-[var(--miniapp-shell-text-muted)] md:hidden"
                   aria-label={isRoot ? 'Close Mini App' : 'Go back'}
                 >
                   <ChevronLeft size={18} />
                 </button>
                 <Link
                   to="/miniapp"
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] bg-[var(--tg-button-color)] text-xs font-black text-[var(--tg-button-text-color)] shadow-[0_12px_28px_rgba(248,129,45,0.28)] md:hidden"
+                  className="miniapp-pressable flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] bg-[var(--tg-button-color)] text-xs font-black text-[var(--tg-button-text-color)] shadow-[0_12px_28px_rgba(248,129,45,0.28)] md:hidden"
                   aria-label="Transferly dashboard"
                 >
                   TR
@@ -305,7 +318,7 @@ export default function MiniAppShell({
                 <button
                   type="button"
                   onClick={copyReferral}
-                  className="hidden items-center gap-2 rounded-full border border-[var(--miniapp-border-color)] bg-[var(--miniapp-panel-bg)] px-3 py-2 text-[11px] font-black uppercase tracking-[0.12em] text-[var(--miniapp-shell-text-muted)] transition hover:text-[var(--miniapp-shell-text)] md:inline-flex"
+                  className="miniapp-pressable hidden items-center gap-2 rounded-full border border-[var(--miniapp-border-color)] bg-[var(--miniapp-panel-bg)] px-3 py-2 text-[11px] font-black uppercase tracking-[0.12em] text-[var(--miniapp-shell-text-muted)] hover:text-[var(--miniapp-shell-text)] md:inline-flex"
                 >
                   <Users size={14} className="text-[var(--tg-button-color)]" />
                   Referred: {Number(profile?.referral_count || 0).toLocaleString()}
@@ -316,7 +329,7 @@ export default function MiniAppShell({
               <div className="hidden min-w-0 items-center gap-3 sm:flex">
                 <Link
                   to="/miniapp/profile"
-                  className="inline-flex items-center gap-2 rounded-full border border-[var(--miniapp-border-color)] bg-[var(--miniapp-panel-bg)] px-2.5 py-2 text-[var(--miniapp-shell-text)]"
+                  className="miniapp-pressable inline-flex items-center gap-2 rounded-full border border-[var(--miniapp-border-color)] bg-[var(--miniapp-panel-bg)] px-2.5 py-2 text-[var(--miniapp-shell-text)]"
                 >
                   <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--tg-button-color)] text-xs font-black text-[var(--tg-button-text-color)]">
                     {initials}
@@ -329,7 +342,7 @@ export default function MiniAppShell({
                 <button
                   type="button"
                   onClick={toggleTheme}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--miniapp-border-color)] bg-[var(--miniapp-panel-bg)] text-[var(--miniapp-shell-text-muted)] transition hover:text-[var(--miniapp-shell-text)] active:scale-95"
+                  className="miniapp-pressable inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--miniapp-border-color)] bg-[var(--miniapp-panel-bg)] text-[var(--miniapp-shell-text-muted)] hover:text-[var(--miniapp-shell-text)]"
                   aria-label="Toggle theme"
                   title="Toggle theme"
                 >
@@ -348,7 +361,7 @@ export default function MiniAppShell({
                   <button
                     type="button"
                     onClick={toggleTheme}
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--tg-secondary-bg-color)] text-[var(--tg-text-color)] transition active:scale-95"
+                    className="miniapp-pressable flex h-9 w-9 items-center justify-center rounded-full bg-[var(--tg-secondary-bg-color)] text-[var(--tg-text-color)]"
                     aria-label="Toggle theme"
                     title="Toggle theme"
                   >
@@ -356,7 +369,7 @@ export default function MiniAppShell({
                   </button>
                   <Link
                     to="/miniapp/wallet"
-                    className="rounded-full bg-[var(--tg-button-color)] px-3 py-2 text-xs font-black text-[var(--tg-button-text-color)]"
+                    className="miniapp-pressable rounded-full bg-[var(--tg-button-color)] px-3 py-2 text-xs font-black text-[var(--tg-button-text-color)]"
                   >
                     {points.toLocaleString()}pts
                   </Link>
@@ -375,18 +388,18 @@ export default function MiniAppShell({
             </div>
           </nav>
 
-          <div className="pointer-events-none fixed right-4 top-[96px] hidden rounded-full border border-[var(--miniapp-border-color)] bg-[var(--miniapp-panel-bg)] px-3 py-2 text-xs font-black text-[var(--miniapp-shell-text-muted)] shadow-lg lg:flex lg:items-center lg:gap-2">
-            <Bot size={14} className="text-[var(--tg-button-color)]" />
+          <div className={`pointer-events-none fixed right-4 top-[96px] hidden rounded-full border border-[var(--miniapp-border-color)] bg-[var(--miniapp-panel-bg)] px-3 py-2 text-xs font-black shadow-lg lg:flex lg:items-center lg:gap-2 ${sessionTone}`}>
+            <Bot size={14} />
             {sessionLabel}
           </div>
 
           {showCommunityModal ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/72 px-4 py-6 backdrop-blur-sm">
-              <section className="relative w-full max-w-[420px] rounded-[30px] border border-white/[0.08] bg-[#171513] p-5 text-white shadow-[0_26px_90px_rgba(0,0,0,0.6)]">
+              <section className="miniapp-enter relative w-full max-w-[420px] rounded-[30px] border border-white/[0.08] bg-[#171513] p-5 text-white shadow-[0_26px_90px_rgba(0,0,0,0.6)]">
                 <button
                   type="button"
                   onClick={dismissCommunityModal}
-                  className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06] text-white/[0.62] transition hover:text-white active:scale-95"
+                  className="miniapp-pressable absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06] text-white/[0.62] hover:text-white"
                   aria-label="Close community prompt"
                 >
                   <X size={18} />
@@ -419,7 +432,7 @@ export default function MiniAppShell({
                     target="_blank"
                     rel="noreferrer"
                     onClick={dismissCommunityModal}
-                    className="flex items-center justify-center gap-2 rounded-[20px] bg-[#f8812d] px-5 py-3 text-sm font-black text-white shadow-[0_16px_34px_rgba(248,129,45,0.28)]"
+                    className="miniapp-pressable flex items-center justify-center gap-2 rounded-[20px] bg-[#f8812d] px-5 py-3 text-sm font-black text-white shadow-[0_16px_34px_rgba(248,129,45,0.28)]"
                   >
                     <MessageCircle size={17} />
                     Join Telegram Channel
@@ -427,7 +440,7 @@ export default function MiniAppShell({
                   <button
                     type="button"
                     onClick={dismissCommunityModal}
-                    className="flex items-center justify-center gap-2 rounded-[20px] bg-white/[0.07] px-5 py-3 text-sm font-black text-white"
+                    className="miniapp-pressable flex items-center justify-center gap-2 rounded-[20px] bg-white/[0.07] px-5 py-3 text-sm font-black text-white"
                   >
                     <CheckCircle2 size={17} />
                     I've already joined

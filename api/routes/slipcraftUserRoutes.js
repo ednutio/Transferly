@@ -1,7 +1,6 @@
 const express = require('express');
 
 const {
-  changeCurrentUserPasswordController,
   createCurrentUserTopUpOrderController,
   deleteCurrentUserAccountController,
   getUserPointsController,
@@ -18,7 +17,6 @@ const {
 const router = express.Router();
 
 router.patch('/me/profile', requireAuthenticatedUser, asyncHandler(updateCurrentUserProfileController));
-router.post('/me/password', requireAuthenticatedUser, asyncHandler(changeCurrentUserPasswordController));
 router.get('/me/top-up-orders', requireAuthenticatedUser, asyncHandler(listCurrentUserTopUpOrdersController));
 router.post('/me/top-up-orders', requireAuthenticatedUser, asyncHandler(createCurrentUserTopUpOrderController));
 router.patch('/me/top-up-orders/:id/status', requireAuthenticatedUser, asyncHandler(updateCurrentUserTopUpOrderStatusController));

@@ -67,7 +67,7 @@ export default function Footer() {
           <div className="mt-4 space-y-3 text-sm text-white/70">
             <Link to="/about" className="block transition hover:text-white">About Us</Link>
             <Link to="/help" className="block transition hover:text-white">Contact Us</Link>
-            <Link to="/register" className="block transition hover:text-white">Create Account</Link>
+            <Link to="/miniapp" className="block transition hover:text-white">Open Mini App</Link>
           </div>
         </div>
 

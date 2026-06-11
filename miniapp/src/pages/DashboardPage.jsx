@@ -143,7 +143,7 @@ export default function DashboardPage() {
   const firstName = (profile?.name || user?.email || 'User').split(' ')[0];
   const referralLink = typeof window === 'undefined'
     ? ''
-    : `${window.location.origin}/register?ref=${profile?.referral_code || ''}`;
+    : `https://t.me/TransferlyBot?start=${profile?.referral_code || ''}`;
   const previewServices = dashboardPreviewSlugs
     .map((slug) => getServiceBySlug(slug))
     .filter(Boolean);

@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Copy, Lock, ShieldCheck, User2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Copy, ShieldCheck, Smartphone, User2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DashboardLayout from '../components/DashboardLayout';
 import { useAppContext } from '../context/AppContext';
 
 const tabs = [
   { key: 'profile', label: 'Profile', icon: User2 },
-  { key: 'security', label: 'Security', icon: Lock },
+  { key: 'session', label: 'Session', icon: Smartphone },
   { key: 'danger', label: 'Danger Zone', icon: AlertTriangle }
 ];
 
@@ -20,13 +20,11 @@ function initialsFromName(name, email) {
 }
 
 export default function ProfilePage() {
-  const { user, profile, receipts, updateProfile, changePassword, deleteAccount, config } = useAppContext();
+  const { user, profile, receipts, updateProfile, deleteAccount, config, telegramAuthState } = useAppContext();
   const [activeTab, setActiveTab] = useState('profile');
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({ name: '' });
-  const [passwordData, setPasswordData] = useState({ new: '', confirm: '' });
-  const [changingPass, setChangingPass] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const brand = config?.brand_color || '#f8812d';
 
@@ -65,33 +63,6 @@ export default function ProfilePage() {
     }
 
     toast.error(result.message || 'Failed to update profile');
-  };
-
-  const handleChangePassword = async () => {
-    if (!passwordData.new || !passwordData.confirm) {
-      toast.error('Please fill in all fields');
-      return;
-    }
-    if (passwordData.new !== passwordData.confirm) {
-      toast.error('Passwords do not match');
-      return;
-    }
-    if (passwordData.new.length < 8) {
-      toast.error('Password must be at least 8 characters');
-      return;
-    }
-
-    setChangingPass(true);
-    const result = await changePassword(passwordData.new);
-    setChangingPass(false);
-
-    if (result.success) {
-      toast.success('Password changed successfully');
-      setPasswordData({ new: '', confirm: '' });
-      return;
-    }
-
-    toast.error(result.message || 'Failed to change password');
   };
 
   const handleDeleteAccount = async () => {
@@ -245,50 +216,33 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {activeTab === 'security' && (
+            {activeTab === 'session' && (
               <div className="rounded-[30px] border border-[#e9e0d2] bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)] md:p-7">
-                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Security</p>
-                <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">Keep account access under your control.</h2>
+                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Telegram session</p>
+                <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">Access is controlled by the bot and API session.</h2>
                 <p className="mt-3 text-sm leading-7 text-slate-600">
-                  Update your password here. Use at least eight characters and avoid reusing credentials across tools.
+                  Transferly uses Telegram Mini App init data to establish the API session, so there is no separate miniapp credential to manage here.
                 </p>
 
-                <div className="mt-6 grid gap-5">
-                  <label className="block">
-                    <span className="mb-2 block text-sm font-bold text-slate-700">New password</span>
-                    <input
-                      type="password"
-                      value={passwordData.new}
-                      onChange={(event) => setPasswordData((prev) => ({ ...prev, new: event.target.value }))}
-                      className="w-full rounded-2xl border border-[#e6ddd0] bg-[#faf7f1] px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-[#f2c39a]"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-2 block text-sm font-bold text-slate-700">Confirm password</span>
-                    <input
-                      type="password"
-                      value={passwordData.confirm}
-                      onChange={(event) => setPasswordData((prev) => ({ ...prev, confirm: event.target.value }))}
-                      className="w-full rounded-2xl border border-[#e6ddd0] bg-[#faf7f1] px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-[#f2c39a]"
-                    />
-                  </label>
-
+                <div className="mt-6 grid gap-4 md:grid-cols-2">
                   <div className="rounded-[24px] bg-[#faf7f1] px-4 py-4 text-sm text-slate-600">
                     <div className="flex items-start gap-3">
                       <CheckCircle2 size={18} className="mt-0.5 text-emerald-500" />
-                      <p>Use a password that is unique to this account and easy for you to manage securely.</p>
+                      <div>
+                        <p className="font-black text-slate-950">Session status</p>
+                        <p className="mt-1 capitalize">{telegramAuthState || 'unavailable'}</p>
+                      </div>
                     </div>
                   </div>
-
-                  <button
-                    onClick={handleChangePassword}
-                    disabled={changingPass}
-                    className="inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-black text-white transition hover:opacity-90 disabled:opacity-50"
-                    style={{ backgroundColor: brand }}
-                  >
-                    {changingPass ? 'Updating...' : 'Update Password'}
-                  </button>
+                  <div className="rounded-[24px] bg-[#faf7f1] px-4 py-4 text-sm text-slate-600">
+                    <div className="flex items-start gap-3">
+                      <ShieldCheck size={18} className="mt-0.5" style={{ color: brand }} />
+                      <div>
+                        <p className="font-black text-slate-950">Identity source</p>
+                        <p className="mt-1">Telegram profile plus Transferly API wallet records.</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

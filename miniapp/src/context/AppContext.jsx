@@ -6,7 +6,6 @@ import {
   adjustUserPoints as adjustUserPointsRequest,
   approveAdminPayout as approveAdminPayoutRequest,
   cancelUnclaimedPayout as cancelUnclaimedPayoutRequest,
-  changePassword as changePasswordRequest,
   cancelInvoiceAutoReminders as cancelInvoiceAutoRemindersRequest,
   cancelInvoice as cancelInvoiceRequest,
   createInvoice as createInvoiceRequest,
@@ -26,6 +25,7 @@ import {
   generateInvoiceQr as generateInvoiceQrRequest,
   getAdminUsers,
   getBootstrap,
+  getMiniAppCommandCenter,
   getInvoiceTimeline as getInvoiceTimelineRequest,
   getAdminWebhookEvent as getAdminWebhookEventRequest,
   getPaymentProviderBalance as getPaymentProviderBalanceRequest,
@@ -52,10 +52,8 @@ import {
   listTopUpOrders as listTopUpOrdersRequest,
   loginWithTelegramMiniApp as loginWithTelegramMiniAppRequest,
   listPayouts as listPayoutsRequest,
-  login as loginRequest,
   previewInvoice as previewInvoiceRequest,
   previewPayout as previewPayoutRequest,
-  register as registerRequest,
   refreshInvoice as refreshInvoiceRequest,
   refreshPayout as refreshPayoutRequest,
   runPaymentReconciliation as runPaymentReconciliationRequest,
@@ -306,6 +304,9 @@ export function AppContextProvider({ children }) {
   const [invoicePagination, setInvoicePaginationState] = useState(null);
   const [payoutPagination, setPayoutPaginationState] = useState(null);
   const [financeSummary, setFinanceSummaryState] = useState(null);
+  const [commandCenter, setCommandCenterState] = useState(null);
+  const [initializationError, setInitializationError] = useState(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
   const [topUpOrders, setTopUpOrdersState] = useState([]);
   const [adminTopUpOrders, setAdminTopUpOrdersState] = useState([]);
   const [paymentProviders, setPaymentProvidersState] = useState([]);
@@ -355,6 +356,9 @@ export function AppContextProvider({ children }) {
       setInvoicePaginationState(null);
       setPayoutPaginationState(null);
       setFinanceSummaryState(null);
+      setCommandCenterState(null);
+      setInitializationError(null);
+      setLastSyncedAt(null);
       setTopUpOrdersState([]);
       setAdminTopUpOrdersState([]);
       setPaymentProvidersState([]);
@@ -382,6 +386,9 @@ export function AppContextProvider({ children }) {
     setPayoutsState(nextPayouts.data);
     setPayoutPaginationState(nextPayouts.pagination);
     setFinanceSummaryState(snapshot.financeSummary || null);
+    setCommandCenterState(snapshot.commandCenter || null);
+    setInitializationError(null);
+    setLastSyncedAt(new Date().toISOString());
     setTopUpOrdersState(nextTopUpOrders);
 
     return {
@@ -391,6 +398,7 @@ export function AppContextProvider({ children }) {
       invoices: nextInvoices.data,
       payouts: nextPayouts.data,
       financeSummary: snapshot.financeSummary || null,
+      commandCenter: snapshot.commandCenter || null,
       topUpOrders: nextTopUpOrders
     };
   }, [readCollectionSnapshot]);
@@ -418,6 +426,19 @@ export function AppContextProvider({ children }) {
     const applied = applySnapshot(snapshot);
     return applied?.profile || null;
   }, [applySnapshot]);
+
+  const fetchCommandCenter = useCallback(async () => {
+    try {
+      const payload = await getMiniAppCommandCenter();
+      const nextCommandCenter = payload?.commandCenter || null;
+      setCommandCenterState(nextCommandCenter);
+      setLastSyncedAt(new Date().toISOString());
+      return nextCommandCenter;
+    } catch (error) {
+      console.error('Failed to fetch mini app command center', error);
+      return null;
+    }
+  }, []);
 
   const fetchReceipts = useCallback(async () => {
     const snapshot = await getMe();
@@ -738,76 +759,61 @@ export function AppContextProvider({ children }) {
     }
   }, [applySnapshot]);
 
-  useEffect(() => {
-    let active = true;
+  const initializeApp = useCallback(async ({ isActive = () => true } = {}) => {
+    setLoading(true);
+    setInitializationError(null);
 
-    async function initialize() {
+    try {
+      const bootstrapPayload = await getBootstrap();
+      if (!isActive()) {
+        return;
+      }
+
+      applyBootstrap(bootstrapPayload);
+
+      const token = getStoredToken() || getStoredAdminToken();
+      if (!token) {
+        await authenticateTelegramMiniApp();
+        return;
+      }
+
       try {
-        const bootstrapPayload = await getBootstrap();
-        if (!active) {
-          return;
-        }
-
-        applyBootstrap(bootstrapPayload);
-
-        const token = getStoredToken() || getStoredAdminToken();
-        if (!token) {
-          await authenticateTelegramMiniApp();
-          return;
-        }
-
-        try {
-          const snapshot = await getMe();
-          if (active) {
-            applySnapshot(snapshot);
-          }
-        } catch (error) {
-          if (error.status === 401 || error.status === 403) {
-            clearStoredToken();
-            await authenticateTelegramMiniApp();
-          } else {
-            throw error;
-          }
+        const snapshot = await getMe();
+        if (isActive()) {
+          applySnapshot(snapshot);
         }
       } catch (error) {
-        console.error('Failed to initialize app context', error);
-      } finally {
-        if (active) {
-          setLoading(false);
+        if (error.status === 401 || error.status === 403) {
+          clearStoredToken();
+          await authenticateTelegramMiniApp();
+        } else {
+          throw error;
         }
       }
+    } catch (error) {
+      console.error('Failed to initialize app context', error);
+      if (isActive()) {
+        setInitializationError({
+          message: error.message || 'Unable to initialize Transferly.'
+        });
+      }
+    } finally {
+      if (isActive()) {
+        setLoading(false);
+      }
     }
+  }, [applyBootstrap, applySnapshot, authenticateTelegramMiniApp]);
 
-    initialize();
+  useEffect(() => {
+    let active = true;
+    initializeApp({ isActive: () => active });
 
     return () => {
       active = false;
     };
-  }, [applyBootstrap, applySnapshot, authenticateTelegramMiniApp]);
+  }, [initializeApp]);
 
-  const login = useCallback(async (email, password) => {
-    try {
-      const result = await loginRequest(email, password);
-      setStoredToken(result.token);
-      const snapshot = await getMe();
-      const applied = applySnapshot(snapshot);
-      return { success: true, user: applied?.user || result.user || null };
-    } catch (error) {
-      return { success: false, message: error.message };
-    }
-  }, [applySnapshot]);
-
-  const register = useCallback(async (name, email, password, referralCode = '') => {
-    try {
-      const result = await registerRequest({ name, email, password, referralCode });
-      setStoredToken(result.token);
-      const snapshot = await getMe();
-      const applied = applySnapshot(snapshot);
-      return { success: true, user: applied?.user || result.user || null };
-    } catch (error) {
-      return { success: false, message: error.message };
-    }
-  }, [applySnapshot]);
+  const retryInitialization = useCallback(() => initializeApp(), [initializeApp]);
 
   const logout = useCallback(async () => {
     clearStoredToken();
@@ -822,6 +828,10 @@ export function AppContextProvider({ children }) {
     setPayoutsState([]);
     setInvoicePaginationState(null);
     setPayoutPaginationState(null);
+    setFinanceSummaryState(null);
+    setCommandCenterState(null);
+    setInitializationError(null);
+    setLastSyncedAt(null);
     setTopUpOrdersState([]);
     setAdminTopUpOrdersState([]);
     setPaymentProvidersState([]);
@@ -853,11 +863,12 @@ export function AppContextProvider({ children }) {
         );
       }
 
+      fetchCommandCenter();
       return nextReceipt || result;
     } catch (error) {
       return { error: error.message };
     }
-  }, [profile, user]);
+  }, [fetchCommandCenter, profile, user]);
 
   const updateProfile = useCallback(async (updates) => {
     try {
@@ -998,14 +1009,6 @@ export function AppContextProvider({ children }) {
       return { success: false, message: error.message };
     }
   }, [user]);
-  const changePassword = useCallback(async (_currentPassword, newPassword) => {
-    try {
-      await changePasswordRequest(newPassword);
-      return { success: true };
-    } catch (error) {
-      return { success: false, message: error.message };
-    }
-  }, []);
   const deleteAccount = useCallback(async () => {
     try {
       await deleteAccountRequest();
@@ -1021,6 +1024,10 @@ export function AppContextProvider({ children }) {
       setPayoutsState([]);
       setInvoicePaginationState(null);
       setPayoutPaginationState(null);
+      setFinanceSummaryState(null);
+      setCommandCenterState(null);
+      setInitializationError(null);
+      setLastSyncedAt(null);
       setTopUpOrdersState([]);
       setAdminTopUpOrdersState([]);
       setPaymentProvidersState([]);
@@ -1054,11 +1061,12 @@ export function AppContextProvider({ children }) {
       const nextOrders = order ? [order, ...topUpOrders.filter((entry) => entry.order_id !== order.order_id)] : topUpOrders;
       setTopUpOrdersState(nextOrders);
       saveTopUpOrders(user.id, nextOrders);
+      fetchCommandCenter();
       return { success: true, order };
     } catch (error) {
       return { success: false, message: error.message };
     }
-  }, [topUpOrders, user?.id]);
+  }, [fetchCommandCenter, topUpOrders, user?.id]);
 
   const updateTopUpOrderStatus = useCallback(async (orderId, status) => {
     if (!user?.id) {
@@ -1073,11 +1081,12 @@ export function AppContextProvider({ children }) {
       );
       setTopUpOrdersState(nextOrders);
       saveTopUpOrders(user.id, nextOrders);
+      fetchCommandCenter();
       return { success: true, order: updatedOrder };
     } catch (error) {
       return { success: false, message: error.message };
     }
-  }, [topUpOrders, user?.id]);
+  }, [fetchCommandCenter, topUpOrders, user?.id]);
 
   const completeTopUpOrder = useCallback(async (orderId, notes) => {
     try {
@@ -1414,10 +1423,7 @@ export function AppContextProvider({ children }) {
     profile,
     loading,
     telegramAuthState,
-    login,
-    register,
     logout,
-    changePassword,
     deleteAccount,
     config,
     updateConfig,
@@ -1425,6 +1431,8 @@ export function AppContextProvider({ children }) {
     receipts,
     addReceipt,
     fetchReceipts,
+    fetchCommandCenter,
+    retryInitialization,
     updateProfile,
     allUsers,
     fetchAllUsers,
@@ -1437,6 +1445,9 @@ export function AppContextProvider({ children }) {
     invoicePagination,
     payoutPagination,
     financeSummary,
+    commandCenter,
+    initializationError,
+    lastSyncedAt,
     topUpOrders,
     adminTopUpOrders,
     paymentProviders,

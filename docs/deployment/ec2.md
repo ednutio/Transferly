@@ -83,6 +83,17 @@ If the server cannot use `npm ci`, run the helper with:
 NPM_INSTALL_COMMAND=install ./scripts/deploy-ec2.sh
 ```
 
+## Mini App Build
+
+The Telegram Mini App is a static Vite build. Build it separately from the API and bot PM2 processes, then serve `miniapp/dist` behind TLS with your reverse proxy or static host:
+
+```bash
+npm ci --prefix miniapp
+VITE_API_BASE_URL=https://api.your-domain.example npm run build --prefix miniapp
+```
+
+Point `TELEGRAM_MINI_APP_URL` in `api/.env` and `MINI_APP_URL` in `bot/.env` to the same public HTTPS Mini App URL. Keep the bot menu button, Telegram Web App settings, and reverse proxy route aligned so Telegram users always enter the miniapp through the deployed static build.
+
 ## PM2 Startup
 
 After the first successful deploy, configure PM2 to restart apps after a server reboot:

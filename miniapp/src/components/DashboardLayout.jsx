@@ -48,7 +48,7 @@ export default function DashboardLayout({ children }) {
       return '';
     }
 
-    return `${window.location.origin}/register?ref=${profile?.referral_code || ''}`;
+    return `https://t.me/TransferlyBot?start=${profile?.referral_code || ''}`;
   }, [profile?.referral_code]);
 
   const points = Number(profile?.points || 0);

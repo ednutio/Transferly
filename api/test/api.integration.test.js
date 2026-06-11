@@ -34,6 +34,8 @@ process.env.HIGH_RISK_CURRENCIES = '';
 process.env.SUSPICIOUS_INVOICE_KEYWORDS = 'crypto,investment';
 process.env.API_RATE_LIMIT_MAX = '500';
 process.env.API_RATE_LIMIT_WINDOW_MS = '60000';
+process.env.AUTH_RATE_LIMIT_MAX = '500';
+process.env.AUTH_RATE_LIMIT_WINDOW_MS = '60000';
 process.env.JOB_WAIT_MS = '5000';
 process.env.ADMIN_API_TOKEN = 'admin-secret-token';
 process.env.ADMIN_API_ACTOR_ID = 'admin-api';
@@ -1291,7 +1293,7 @@ describe('API integration flows', () => {
     assert.equal(user.displayName, 'Renamed Demo User');
   });
 
-  test('POST /api/user/me/password rotates account credentials for authenticated users', async () => {
+  test('legacy email/password account endpoints are not exposed for mini app users', async () => {
     const registerPayload = JSON.stringify({
       email: 'password-rotate@example.com',
       password: 'strongpassword123',
@@ -1306,8 +1308,7 @@ describe('API integration flows', () => {
       body: registerPayload
     });
 
-    assert.equal(registerResponse.status, 201);
-    const registerBody = registerResponse.json();
+    assert.equal(registerResponse.status, 404);
 
     const passwordPayload = JSON.stringify({
       newPassword: 'newstrongpassword456'
@@ -1316,26 +1317,11 @@ describe('API integration flows', () => {
     const passwordResponse = await injectRequest(app, {
       method: 'POST',
       url: '/api/user/me/password',
-      headers: jsonHeaders(passwordPayload, bearerHeaders(registerBody.token)),
+      headers: jsonHeaders(passwordPayload, bearerHeaders(userTokens.demoUser)),
       body: passwordPayload
     });
 
-    assert.equal(passwordResponse.status, 200);
-    assert.equal(passwordResponse.json().password_updated, true);
-
-    const oldLoginPayload = JSON.stringify({
-      email: 'password-rotate@example.com',
-      password: 'strongpassword123'
-    });
-
-    const oldLoginResponse = await injectRequest(app, {
-      method: 'POST',
-      url: '/api/auth/login',
-      headers: jsonHeaders(oldLoginPayload),
-      body: oldLoginPayload
-    });
-
-    assert.equal(oldLoginResponse.status, 401);
+    assert.equal(passwordResponse.status, 404);
 
     const newLoginPayload = JSON.stringify({
       email: 'password-rotate@example.com',
@@ -1349,53 +1335,46 @@ describe('API integration flows', () => {
       body: newLoginPayload
     });
 
-    assert.equal(newLoginResponse.status, 200);
-    assert.equal(newLoginResponse.json().user.email, 'password-rotate@example.com');
+    assert.equal(newLoginResponse.status, 404);
   });
 
   test('DELETE /api/user/me removes the authenticated account', async () => {
-    const registerPayload = JSON.stringify({
-      email: 'delete-account@example.com',
-      password: 'strongpassword123',
-      name: 'Delete Me',
-      countryCode: 'US'
+    const initData = createTelegramMiniAppInitData({
+      user: {
+        id: 77001,
+        first_name: 'Delete',
+        last_name: 'Me',
+        username: 'delete_me'
+      },
+      startParam: 'profile'
     });
-
-    const registerResponse = await injectRequest(app, {
+    const authPayload = JSON.stringify({
+      initData,
+      startParam: 'profile'
+    });
+    const authResponse = await injectRequest(app, {
       method: 'POST',
-      url: '/api/auth/register',
-      headers: jsonHeaders(registerPayload),
-      body: registerPayload
+      url: '/api/auth/telegram-mini-app',
+      headers: jsonHeaders(authPayload),
+      body: authPayload
     });
 
-    assert.equal(registerResponse.status, 201);
-    const registerBody = registerResponse.json();
+    assert.equal(authResponse.status, 200);
+    const authBody = authResponse.json();
+    assert.ok(authBody.token);
+    assert.equal(authBody.user.email, 'telegram-77001@telegram.transferly.local');
 
     const deleteResponse = await injectRequest(app, {
       method: 'DELETE',
       url: '/api/user/me',
-      headers: bearerHeaders(registerBody.token)
+      headers: bearerHeaders(authBody.token)
     });
 
     assert.equal(deleteResponse.status, 200);
     assert.equal(deleteResponse.json().deleted, true);
 
-    const deletedUser = await userRepository.findById(registerBody.user.id);
+    const deletedUser = await userRepository.findById(authBody.user.id);
     assert.equal(deletedUser, null);
-
-    const loginPayload = JSON.stringify({
-      email: 'delete-account@example.com',
-      password: 'strongpassword123'
-    });
-
-    const loginResponse = await injectRequest(app, {
-      method: 'POST',
-      url: '/api/auth/login',
-      headers: jsonHeaders(loginPayload),
-      body: loginPayload
-    });
-
-    assert.equal(loginResponse.status, 401);
   });
 
   test('admin user endpoints enforce admin auth and allow manual point adjustments', async () => {
@@ -2791,48 +2770,38 @@ describe('API integration flows', () => {
     assert.ok(timelineBody.data.some((entry) => entry.action === 'invoice.note_added'));
   });
 
-  test('auth register/login, points lookup, receipt generation, email dispatch, referral stats, and telegram webhook all work through the new SlipCraft endpoints', async () => {
-    const registerPayload = JSON.stringify({
-      email: 'slipcraft-user@example.com',
-      password: 'strongpassword123',
-      name: 'SlipCraft User',
-      countryCode: 'US'
+  test('telegram mini app auth, points lookup, receipt generation, email dispatch, referral stats, and telegram webhook all work through the SlipCraft endpoints', async () => {
+    const initData = createTelegramMiniAppInitData({
+      user: {
+        id: 88001,
+        first_name: 'SlipCraft',
+        last_name: 'User',
+        username: 'slipcraft_user'
+      },
+      startParam: 'dashboard'
+    });
+    const authPayload = JSON.stringify({
+      initData,
+      startParam: 'dashboard'
     });
 
-    const registerResponse = await injectRequest(app, {
+    const authResponse = await injectRequest(app, {
       method: 'POST',
-      url: '/api/auth/register',
-      headers: jsonHeaders(registerPayload),
-      body: registerPayload
+      url: '/api/auth/telegram-mini-app',
+      headers: jsonHeaders(authPayload),
+      body: authPayload
     });
 
-    assert.equal(registerResponse.status, 201);
-    const registerBody = registerResponse.json();
-    assert.ok(registerBody.token);
-    assert.equal(registerBody.user.email, 'slipcraft-user@example.com');
-    assert.equal(registerBody.user.profile.points, 50);
-
-    const loginPayload = JSON.stringify({
-      email: 'slipcraft-user@example.com',
-      password: 'strongpassword123'
-    });
-
-    const loginResponse = await injectRequest(app, {
-      method: 'POST',
-      url: '/api/auth/login',
-      headers: jsonHeaders(loginPayload),
-      body: loginPayload
-    });
-
-    assert.equal(loginResponse.status, 200);
-    const loginBody = loginResponse.json();
-    assert.ok(loginBody.token);
-    assert.equal(loginBody.user.id, registerBody.user.id);
+    assert.equal(authResponse.status, 200);
+    const authBody = authResponse.json();
+    assert.ok(authBody.token);
+    assert.equal(authBody.user.email, 'telegram-88001@telegram.transferly.local');
+    assert.equal(authBody.user.profile.points, 50);
 
     const pointsResponse = await injectRequest(app, {
       method: 'GET',
-      url: `/api/user/${registerBody.user.id}/points`,
-      headers: bearerHeaders(loginBody.token)
+      url: `/api/user/${authBody.user.id}/points`,
+      headers: bearerHeaders(authBody.token)
     });
 
     assert.equal(pointsResponse.status, 200);
@@ -2850,7 +2819,7 @@ describe('API integration flows', () => {
     const receiptResponse = await injectRequest(app, {
       method: 'POST',
       url: '/api/receipt/generate',
-      headers: jsonHeaders(receiptPayload, bearerHeaders(loginBody.token)),
+      headers: jsonHeaders(receiptPayload, bearerHeaders(authBody.token)),
       body: receiptPayload
     });
 
@@ -2869,7 +2838,7 @@ describe('API integration flows', () => {
     const emailResponse = await injectRequest(app, {
       method: 'POST',
       url: '/api/email/send',
-      headers: jsonHeaders(emailPayload, bearerHeaders(loginBody.token)),
+      headers: jsonHeaders(emailPayload, bearerHeaders(authBody.token)),
       body: emailPayload
     });
 
@@ -2881,7 +2850,7 @@ describe('API integration flows', () => {
     const referralResponse = await injectRequest(app, {
       method: 'POST',
       url: '/api/referral',
-      headers: jsonHeaders('{}', bearerHeaders(loginBody.token)),
+      headers: jsonHeaders('{}', bearerHeaders(authBody.token)),
       body: '{}'
     });
 
@@ -2891,8 +2860,8 @@ describe('API integration flows', () => {
     assert.ok(referralBody.referral_code);
 
     await telegramRepository.upsertAccount({
-      userId: registerBody.user.id,
-      telegramUserId: 'tg-user-1',
+      userId: authBody.user.id,
+      telegramUserId: '88001',
       chatId: 'tg-chat-1',
       username: 'slipcraft_bot_user',
       firstName: 'Slip',
@@ -2907,7 +2876,7 @@ describe('API integration flows', () => {
           id: 'tg-chat-1'
         },
         from: {
-          id: 'tg-user-1',
+          id: '88001',
           username: 'slipcraft_bot_user',
           first_name: 'Slip',
           last_name: 'Craft'
@@ -2937,7 +2906,7 @@ describe('API integration flows', () => {
           id: 'tg-chat-1'
         },
         from: {
-          id: 'tg-user-1',
+          id: '88001',
           username: 'slipcraft_bot_user',
           first_name: 'Slip',
           last_name: 'Craft'
@@ -2969,7 +2938,7 @@ describe('API integration flows', () => {
           id: 'tg-chat-1'
         },
         from: {
-          id: 'tg-user-1',
+          id: '88001',
           username: 'slipcraft_bot_user',
           first_name: 'Slip',
           last_name: 'Craft'
@@ -2999,7 +2968,7 @@ describe('API integration flows', () => {
           id: 'tg-chat-1'
         },
         from: {
-          id: 'tg-user-1',
+          id: '88001',
           username: 'slipcraft_bot_user',
           first_name: 'Slip',
           last_name: 'Craft'
@@ -3025,7 +2994,7 @@ describe('API integration flows', () => {
     const receipt = await receiptRepository.findById(receiptBody.receipt.id);
     assert.equal(receipt.status, 'EMAILED');
 
-    const profile = await profileRepository.findByUserId(registerBody.user.id);
+    const profile = await profileRepository.findByUserId(authBody.user.id);
     assert.equal(profile.points, 30);
   });
 

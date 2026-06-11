@@ -31,6 +31,12 @@ const FALLBACK_THEME = {
   bottom_bar_bg_color: '#ffffff',
   accent_text_color: '#f8812d'
 };
+const DEFAULT_SAFE_AREA = {
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 0
+};
 
 function getRoot() {
   if (typeof document === 'undefined') {
@@ -80,6 +86,57 @@ export function getRawTelegramInitData(webApp = getTelegramWebApp()) {
   return webApp?.initData || getLaunchParam('tgWebAppData') || '';
 }
 
+function normalizeInset(inset = {}) {
+  return {
+    top: Number(inset?.top || 0),
+    right: Number(inset?.right || 0),
+    bottom: Number(inset?.bottom || 0),
+    left: Number(inset?.left || 0)
+  };
+}
+
+export function getTelegramPlatform(webApp = getTelegramWebApp()) {
+  return webApp?.platform || 'unknown';
+}
+
+export function getTelegramVersion(webApp = getTelegramWebApp()) {
+  return webApp?.version || '';
+}
+
+export function getTelegramColorScheme(webApp = getTelegramWebApp()) {
+  return webApp?.colorScheme || webApp?.color_scheme || 'light';
+}
+
+export function getTelegramSafeArea(webApp = getTelegramWebApp()) {
+  return {
+    safeArea: normalizeInset(webApp?.safeAreaInset || DEFAULT_SAFE_AREA),
+    contentSafeArea: normalizeInset(webApp?.contentSafeAreaInset || DEFAULT_SAFE_AREA)
+  };
+}
+
+export function applyTelegramViewportVars(webApp = getTelegramWebApp()) {
+  const root = getRoot();
+  const safeArea = getTelegramSafeArea(webApp);
+
+  if (!root) {
+    return safeArea;
+  }
+
+  const viewportHeight = Number(webApp?.viewportHeight || (typeof window === 'undefined' ? 0 : window.innerHeight) || 0);
+  const viewportStableHeight = Number(webApp?.viewportStableHeight || viewportHeight || 0);
+  root.style.setProperty('--tg-viewport-height', viewportHeight ? `${viewportHeight}px` : '100vh');
+  root.style.setProperty('--tg-viewport-stable-height', viewportStableHeight ? `${viewportStableHeight}px` : '100vh');
+
+  Object.entries(safeArea.safeArea).forEach(([key, value]) => {
+    root.style.setProperty(`--tg-safe-area-${key}`, `${value}px`);
+  });
+  Object.entries(safeArea.contentSafeArea).forEach(([key, value]) => {
+    root.style.setProperty(`--tg-content-safe-area-${key}`, `${value}px`);
+  });
+
+  return safeArea;
+}
+
 export function applyTelegramTheme(themeParams = {}) {
   const root = getRoot();
   if (!root) {
@@ -106,9 +163,22 @@ export function applyTelegramTheme(themeParams = {}) {
 export function initializeTelegramMiniApp() {
   const webApp = getTelegramWebApp();
   const theme = applyTelegramTheme(webApp?.themeParams);
+  const safeArea = applyTelegramViewportVars(webApp);
 
   if (!webApp) {
-    return { webApp: null, theme, user: null, startParam: getTelegramStartParam(null), available: false };
+    return {
+      webApp: null,
+      theme,
+      user: null,
+      startParam: getTelegramStartParam(null),
+      initData: getRawTelegramInitData(null),
+      platform: getTelegramPlatform(null),
+      version: getTelegramVersion(null),
+      colorScheme: getTelegramColorScheme(null),
+      safeArea: safeArea.safeArea,
+      contentSafeArea: safeArea.contentSafeArea,
+      available: false
+    };
   }
 
   try {
@@ -125,6 +195,12 @@ export function initializeTelegramMiniApp() {
     theme,
     user: getTelegramUser(webApp),
     startParam: getTelegramStartParam(webApp),
+    initData: getRawTelegramInitData(webApp),
+    platform: getTelegramPlatform(webApp),
+    version: getTelegramVersion(webApp),
+    colorScheme: getTelegramColorScheme(webApp),
+    safeArea: safeArea.safeArea,
+    contentSafeArea: safeArea.contentSafeArea,
     available: true
   };
 }
@@ -182,6 +258,33 @@ export function configureTelegramMainButton(webApp, {
   };
 }
 
+export function configureTelegramBackButton(webApp, {
+  visible = true,
+  onClick
+} = {}) {
+  const button = webApp?.BackButton;
+  if (!button) {
+    return () => {};
+  }
+
+  if (visible) {
+    button.show?.();
+  } else {
+    button.hide?.();
+  }
+
+  if (onClick) {
+    button.onClick?.(onClick);
+  }
+
+  return () => {
+    if (onClick) {
+      button.offClick?.(onClick);
+    }
+    button.hide?.();
+  };
+}
+
 export function configureTelegramSettingsButton(webApp, {
   visible = true,
   onClick
@@ -230,6 +333,98 @@ export function configureVerticalSwipe(webApp, enabled) {
   } catch (_error) {
     // Swipe behavior is client/version dependent.
   }
+}
+
+export function showTelegramPopup(options = {}) {
+  return new Promise((resolve) => {
+    try {
+      const webApp = getTelegramWebApp();
+      if (!webApp?.showPopup) {
+        resolve(null);
+        return;
+      }
+      webApp.showPopup(options, resolve);
+    } catch (_error) {
+      resolve(null);
+    }
+  });
+}
+
+export function showTelegramAlert(message) {
+  return new Promise((resolve) => {
+    try {
+      const webApp = getTelegramWebApp();
+      if (webApp?.showAlert) {
+        webApp.showAlert(String(message || ''), resolve);
+        return;
+      }
+      if (typeof window !== 'undefined' && window.alert) {
+        window.alert(String(message || ''));
+      }
+      resolve(true);
+    } catch (_error) {
+      resolve(false);
+    }
+  });
+}
+
+export function showTelegramConfirm(message) {
+  return new Promise((resolve) => {
+    try {
+      const webApp = getTelegramWebApp();
+      if (webApp?.showConfirm) {
+        webApp.showConfirm(String(message || ''), resolve);
+        return;
+      }
+      if (typeof window !== 'undefined' && window.confirm) {
+        resolve(window.confirm(String(message || '')));
+        return;
+      }
+      resolve(true);
+    } catch (_error) {
+      resolve(false);
+    }
+  });
+}
+
+export function openTelegramLink(url, options = {}) {
+  try {
+    const target = String(url || '');
+    const webApp = getTelegramWebApp();
+
+    if (!target) {
+      return false;
+    }
+
+    if (webApp?.openTelegramLink && target.startsWith('https://t.me/')) {
+      webApp.openTelegramLink(target);
+      return true;
+    }
+
+    if (webApp?.openLink) {
+      webApp.openLink(target, options);
+      return true;
+    }
+
+    if (typeof window !== 'undefined') {
+      window.open(target, '_blank', 'noopener,noreferrer');
+      return true;
+    }
+  } catch (_error) {
+    return false;
+  }
+
+  return false;
+}
+
+export function shareTelegramUrl(url, text = '') {
+  const target = String(url || '');
+  if (!target) {
+    return false;
+  }
+
+  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(target)}${text ? `&text=${encodeURIComponent(text)}` : ''}`;
+  return openTelegramLink(shareUrl);
 }
 
 export function triggerTelegramImpact(style = 'light') {

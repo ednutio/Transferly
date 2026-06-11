@@ -700,21 +700,55 @@ function InvoiceComposer({ onClose }) {
   );
 }
 
-function PayoutComposer({ onClose }) {
+function PayoutComposer({ onClose, availableBalance = 0 }) {
   const { createPayout, user } = useAppContext();
   const telegram = useTelegramMiniApp();
   const [saving, setSaving] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
   const [form, setForm] = useState({
     receiver: '',
     amount: '',
     currency: 'USD',
     note: ''
   });
+  const parsedAmount = Number(form.amount);
+  const amountReady = Number.isFinite(parsedAmount) && parsedAmount > 0;
+  const exceedsBalance = amountReady && availableBalance > 0 && parsedAmount > availableBalance;
+  const canSubmit = Boolean(user?.id && form.receiver && amountReady && !exceedsBalance && confirmed && !saving);
+
+  const checkEligibility = () => {
+    if (exceedsBalance) {
+      toast.error('Amount exceeds available balance');
+      telegram.notify('error');
+      return;
+    }
+
+    toast.success('Eligibility check passed');
+    telegram.impact('light');
+  };
 
   const create = async () => {
-    if (!form.receiver || !form.amount) {
+    if (!user?.id) {
+      toast.error('Open Transferly from Telegram to request a payout');
+      telegram.notify('error');
+      return;
+    }
+
+    if (!form.receiver || !amountReady) {
       toast.error('Receiver and amount are required');
       telegram.notify('error');
+      return;
+    }
+
+    if (exceedsBalance) {
+      toast.error('Amount exceeds available wallet balance');
+      telegram.notify('error');
+      return;
+    }
+
+    if (!confirmed) {
+      toast.error('Confirm the payout review before submitting');
+      telegram.impact('light');
       return;
     }
 
@@ -724,7 +758,7 @@ function PayoutComposer({ onClose }) {
     const result = await createPayout({
       receiver: form.receiver,
       recipientType: 'EMAIL',
-      amount: form.amount,
+      amount: parsedAmount,
       currency: form.currency,
       note: form.note || 'Mini App payout'
     });
@@ -758,9 +792,97 @@ function PayoutComposer({ onClose }) {
         <input className="rounded-[18px] bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-bold outline-none" placeholder="Amount" inputMode="decimal" value={form.amount} onChange={(event) => setForm((prev) => ({ ...prev, amount: event.target.value }))} />
         <input className="rounded-[18px] bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-bold outline-none sm:col-span-2" placeholder="Note" value={form.note} onChange={(event) => setForm((prev) => ({ ...prev, note: event.target.value }))} />
       </div>
+      <div className="mt-4 grid gap-2 rounded-[24px] bg-[var(--tg-secondary-bg-color)] p-4 sm:grid-cols-4">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--tg-hint-color)]">Receiver</p>
+          <p className="mt-1 truncate text-sm font-black text-[var(--tg-text-color)]">{form.receiver || 'Not set'}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--tg-hint-color)]">Amount</p>
+          <p className={`mt-1 text-sm font-black ${exceedsBalance ? 'text-[var(--tg-destructive-text-color)]' : 'text-[var(--tg-text-color)]'}`}>
+            {amountReady ? formatMoney(parsedAmount, form.currency) : 'Not set'}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--tg-hint-color)]">Available</p>
+          <p className="mt-1 text-sm font-black text-[var(--tg-text-color)]">{formatMoney(availableBalance, form.currency)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--tg-hint-color)]">Route</p>
+          <p className="mt-1 text-sm font-black text-[var(--tg-text-color)]">Email payout</p>
+        </div>
+      </div>
+      <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-[20px] bg-[var(--tg-secondary-bg-color)] p-4 text-sm font-bold text-[var(--tg-text-color)]">
+        <input
+          type="checkbox"
+          checked={confirmed}
+          onChange={(event) => setConfirmed(event.target.checked)}
+          className="mt-1 h-4 w-4 accent-[var(--tg-button-color)]"
+        />
+        <span>I confirm this payout request is ready for review.</span>
+      </label>
       <div className="mt-5 flex flex-wrap gap-2">
-        <PrimaryButton icon={WalletCards} onClick={create} disabled={saving || !user?.id}>{saving ? 'Submitting' : 'Request payout'}</PrimaryButton>
-        <SecondaryButton icon={ShieldCheck} onClick={() => toast.success('Eligibility check passed')}>Check eligibility</SecondaryButton>
+        <PrimaryButton icon={WalletCards} onClick={create} disabled={!canSubmit}>{saving ? 'Submitting' : 'Request payout'}</PrimaryButton>
+        <SecondaryButton icon={ShieldCheck} onClick={checkEligibility}>Check eligibility</SecondaryButton>
+      </div>
+    </section>
+  );
+}
+
+function PayoutReadinessGuide({ records, profile }) {
+  const availableBalance = readWalletAmount(profile, 'available_balance');
+  const reviewCount = records.filter((record) => String(record.status).toUpperCase() === 'PENDING_APPROVAL').length;
+  const processingCount = records.filter((record) => String(record.status).toUpperCase() === 'PROCESSING').length;
+  const exceptionCount = records.filter((record) => ['FAILED', 'CANCELLED', 'REJECTED', 'HOLD'].includes(String(record.status).toUpperCase())).length;
+  const items = [
+    {
+      label: 'Wallet balance',
+      value: formatMoney(availableBalance),
+      detail: 'Ledger-backed funds',
+      icon: WalletCards
+    },
+    {
+      label: 'Review queue',
+      value: reviewCount.toLocaleString(),
+      detail: 'Needs operator approval',
+      icon: ShieldCheck
+    },
+    {
+      label: 'Provider release',
+      value: processingCount.toLocaleString(),
+      detail: 'Already in flight',
+      icon: Clock3
+    },
+    {
+      label: 'Exceptions',
+      value: exceptionCount.toLocaleString(),
+      detail: 'Needs retry or cancel',
+      icon: AlertTriangle
+    }
+  ];
+
+  return (
+    <section aria-label="Payout readiness" className="rounded-[30px] bg-[var(--tg-section-bg-color)] p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--tg-hint-color)]">Payout readiness</p>
+          <h3 className="mt-2 text-2xl font-black text-[var(--tg-text-color)]">Review before release</h3>
+        </div>
+        <ShieldAlert className="shrink-0 text-[var(--tg-button-color)]" size={26} />
+      </div>
+      <div className="mt-5 grid gap-2 sm:grid-cols-4">
+        {items.map((item) => {
+          const Icon = item.icon;
+
+          return (
+            <div key={item.label} className="rounded-[20px] bg-[var(--tg-secondary-bg-color)] p-3">
+              <Icon className="text-[var(--tg-button-color)]" size={18} />
+              <p className="mt-3 text-sm font-black text-[var(--tg-text-color)]">{item.value}</p>
+              <p className="mt-1 text-xs font-black text-[var(--tg-text-color)]">{item.label}</p>
+              <p className="mt-1 text-xs font-bold text-[var(--tg-subtitle-text-color)]">{item.detail}</p>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -866,6 +988,7 @@ export function PayoutsSection() {
       .includes(query.toLowerCase())
   );
   const selected = filtered[0];
+  const availableBalance = readWalletAmount(profile, 'available_balance');
   const pendingAmount = records
     .filter((record) => ['PENDING', 'PENDING_APPROVAL', 'PROCESSING'].includes(String(record.status).toUpperCase()))
     .reduce((sum, record) => sum + readAmount(record), 0);
@@ -879,13 +1002,14 @@ export function PayoutsSection() {
         icon={WalletCards}
         action={<PrimaryButton icon={Plus} onClick={() => setShowComposer(true)}>Request payout</PrimaryButton>}
       />
-      {showComposer ? <PayoutComposer onClose={() => setShowComposer(false)} /> : null}
+      {showComposer ? <PayoutComposer onClose={() => setShowComposer(false)} availableBalance={availableBalance} /> : null}
       <div className="grid gap-3 sm:grid-cols-4">
-        <MetricCard icon={WalletCards} label="Available" value={formatMoney(readWalletAmount(profile, 'available_balance'))} detail="Wallet ledger balance" />
+        <MetricCard icon={WalletCards} label="Available" value={formatMoney(availableBalance)} detail="Wallet ledger balance" />
         <MetricCard icon={Clock3} label="Pending" value={formatMoney(pendingAmount)} />
         <MetricCard icon={ShieldCheck} label="Reviews" value={records.filter((record) => String(record.status).toUpperCase() === 'PENDING_APPROVAL').length.toLocaleString()} />
         <MetricCard icon={CheckCircle2} label="Completed" value={records.filter((record) => String(record.status).toUpperCase() === 'COMPLETED').length.toLocaleString()} />
       </div>
+      <PayoutReadinessGuide records={records} profile={profile} />
       <SearchBar query={query} onQuery={setQuery} placeholder="Search payouts, receivers, status" />
       {filtered.length ? (
         <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(320px,1.1fr)]">
