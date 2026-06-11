@@ -6,22 +6,30 @@
 import React from 'react';
 
 export function PremiumInput({
+  id,
   type = 'text',
   label,
   value = '',
   onChange,
+  onBlur,
   error,
   helperText,
   icon: Icon,
   disabled = false,
+  success = false,
+  className = '',
+  inputClassName = '',
   ...props
 }) {
   const [focused, setFocused] = React.useState(false);
+  const generatedId = React.useId();
+  const inputId = id || `premium-input-${generatedId}`;
+  const messageId = error || helperText ? `${inputId}-message` : undefined;
 
   return (
-    <div className="relative">
+    <div className={`relative ${className}`}>
       {label && (
-        <label className={`
+        <label htmlFor={inputId} className={`
           absolute left-4 transition-all duration-200 pointer-events-none font-medium
           ${focused || value
             ? 'top-2 text-xs text-slate-500 dark:text-slate-400'
@@ -43,12 +51,18 @@ export function PremiumInput({
         )}
 
         <input
+          id={inputId}
           type={type}
           value={value}
           onChange={onChange}
           onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          onBlur={(event) => {
+            setFocused(false);
+            onBlur?.(event);
+          }}
           disabled={disabled}
+          aria-invalid={error ? 'true' : 'false'}
+          aria-describedby={messageId}
           className={`
             w-full ${label ? 'pt-6 pb-2' : 'py-3'} ${Icon ? 'pl-10' : 'px-4'} pr-4
             border-b-2 bg-transparent dark:bg-slate-900/30
@@ -58,18 +72,20 @@ export function PremiumInput({
             placeholder-slate-400 dark:placeholder-slate-500
             disabled:opacity-50 disabled:cursor-not-allowed
             ${error ? 'border-red-500 dark:border-red-400 focus:border-red-600' : ''}
+            ${success && !error ? 'border-emerald-500 dark:border-emerald-400 focus:border-emerald-500' : ''}
+            ${inputClassName}
           `}
           {...props}
         />
       </div>
 
       {error && (
-        <p className="mt-2 text-sm font-medium text-red-500 dark:text-red-400 animate-slide-up">
+        <p id={messageId} className="miniapp-field-message mt-2 text-sm font-medium text-red-500 dark:text-red-400">
           {error}
         </p>
       )}
       {helperText && !error && (
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+        <p id={messageId} className="mt-2 text-xs text-slate-500 dark:text-slate-400">
           {helperText}
         </p>
       )}

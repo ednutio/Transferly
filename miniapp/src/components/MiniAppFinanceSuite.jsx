@@ -33,6 +33,7 @@ import {
 import toast from 'react-hot-toast';
 import { useAppContext } from '../context/AppContext';
 import { useTelegramMiniApp } from '../context/TelegramMiniAppContext';
+import { PremiumInput } from './ui';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -632,10 +633,113 @@ function readIssueSummary(issue) {
   return issue?.summary || issue?.title || issue?.description || issue?.issue_type || issue?.type || 'Provider issue';
 }
 
+function isEmailLike(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+function readFirstError(errors) {
+  return Object.values(errors).find(Boolean);
+}
+
+function readVisibleErrors(errors, touched, submitted) {
+  return Object.entries(errors).reduce((visible, [field, message]) => {
+    if (message && (submitted || touched[field])) {
+      visible[field] = message;
+    }
+
+    return visible;
+  }, {});
+}
+
+function readDueDateError(value) {
+  if (!value) {
+    return '';
+  }
+
+  const dueDate = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(dueDate.getTime())) {
+    return 'Choose a valid due date.';
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (dueDate < today) {
+    return 'Due date cannot be in the past.';
+  }
+
+  return '';
+}
+
+function validateInvoiceComposer(form, user) {
+  const amount = Number(form.amount);
+
+  return {
+    recipientEmail: !form.recipientEmail
+      ? 'Client email is required.'
+      : !isEmailLike(form.recipientEmail)
+        ? 'Enter a valid client email.'
+        : '',
+    amount: !form.amount
+      ? 'Amount is required.'
+      : !Number.isFinite(amount) || amount <= 0
+        ? 'Enter an amount greater than zero.'
+        : '',
+    currency: /^[A-Z]{3}$/.test(form.currency) ? '' : 'Use a 3-letter currency code.',
+    dueDate: readDueDateError(form.dueDate),
+    user: user?.id ? '' : 'Open Transferly from Telegram before creating an invoice.'
+  };
+}
+
+function validatePayoutComposer(form, user, availableBalance, confirmed) {
+  const amount = Number(form.amount);
+  const amountReady = Number.isFinite(amount) && amount > 0;
+  const exceedsBalance = amountReady && availableBalance > 0 && amount > availableBalance;
+
+  return {
+    receiver: !form.receiver
+      ? 'Receiver email is required.'
+      : !isEmailLike(form.receiver)
+        ? 'Enter a valid receiver email.'
+        : '',
+    amount: !form.amount
+      ? 'Amount is required.'
+      : !amountReady
+        ? 'Enter an amount greater than zero.'
+        : exceedsBalance
+          ? 'Amount exceeds available wallet balance.'
+          : '',
+    currency: /^[A-Z]{3}$/.test(form.currency) ? '' : 'Use a 3-letter currency code.',
+    confirmed: confirmed ? '' : 'Confirm the review acknowledgement before submitting.',
+    user: user?.id ? '' : 'Open Transferly from Telegram to request a payout.'
+  };
+}
+
+function ComposerFeedback({ tone = 'info', icon: Icon = ShieldCheck, title, body }) {
+  if (!title && !body) {
+    return null;
+  }
+
+  return (
+    <div className={`miniapp-feedback-panel miniapp-feedback-${tone}`} role={tone === 'error' ? 'alert' : 'status'}>
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] bg-white/70 text-current">
+        <Icon size={18} />
+      </span>
+      <div className="min-w-0">
+        {title ? <p className="text-sm font-black text-[var(--tg-text-color)]">{title}</p> : null}
+        {body ? <p className="mt-1 text-xs font-bold leading-5 text-[var(--tg-subtitle-text-color)]">{body}</p> : null}
+      </div>
+    </div>
+  );
+}
+
 function InvoiceComposer({ onClose }) {
   const { createInvoice, user } = useAppContext();
   const telegram = useTelegramMiniApp();
   const [saving, setSaving] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [touched, setTouched] = useState({});
+  const [feedback, setFeedback] = useState(null);
   const [form, setForm] = useState({
     recipientEmail: '',
     description: '',
@@ -643,19 +747,54 @@ function InvoiceComposer({ onClose }) {
     amount: '',
     dueDate: ''
   });
+  const errors = useMemo(() => validateInvoiceComposer(form, user), [form, user]);
+  const visibleErrors = useMemo(() => readVisibleErrors(errors, touched, submitted), [errors, submitted, touched]);
+  const firstError = readFirstError(errors);
+  const canSubmit = Boolean(!firstError && !saving);
+
+  const updateField = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    setFeedback(null);
+  };
+
+  const markTouched = (field) => {
+    setTouched((current) => ({ ...current, [field]: true }));
+  };
+
+  const preview = () => {
+    setSubmitted(true);
+
+    if (firstError) {
+      setFeedback({ tone: 'error', icon: AlertTriangle, title: 'Preview needs a fix', body: firstError });
+      telegram.notify('error');
+      return;
+    }
+
+    setFeedback({
+      tone: 'success',
+      icon: Eye,
+      title: 'Preview ready',
+      body: `${form.recipientEmail} will receive ${formatMoney(form.amount, form.currency)} for ${form.description || 'Transferly service'}.`
+    });
+    telegram.impact('light');
+  };
 
   const create = async () => {
-    if (!form.recipientEmail || !form.amount) {
-      toast.error('Recipient and amount are required');
+    setSubmitted(true);
+
+    if (firstError) {
+      setFeedback({ tone: 'error', icon: AlertTriangle, title: 'Invoice needs a fix', body: firstError });
+      toast.error(firstError);
       telegram.notify('error');
       return;
     }
 
     setSaving(true);
+    setFeedback({ tone: 'info', icon: Clock3, title: 'Creating invoice', body: 'Preparing the payable invoice and ledger intent.' });
     telegram.impact('medium');
 
     const result = await createInvoice({
-      recipientEmail: form.recipientEmail,
+      recipientEmail: form.recipientEmail.trim(),
       description: form.description || 'Mini App invoice',
       currency: form.currency,
       dueDate: form.dueDate,
@@ -665,11 +804,13 @@ function InvoiceComposer({ onClose }) {
     setSaving(false);
 
     if (!result.success) {
+      setFeedback({ tone: 'error', icon: AlertTriangle, title: 'Invoice was not created', body: result.message || 'Unable to create invoice' });
       toast.error(result.message || 'Unable to create invoice');
       telegram.notify('error');
       return;
     }
 
+    setFeedback({ tone: 'success', icon: CheckCircle2, title: 'Invoice created', body: 'The invoice is ready for the payment workflow.' });
     toast.success('Invoice created');
     telegram.notify('success');
     onClose();
@@ -686,15 +827,73 @@ function InvoiceComposer({ onClose }) {
           <XCircle size={18} />
         </button>
       </div>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <input className="rounded-[18px] bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-bold outline-none" placeholder="Client email" value={form.recipientEmail} onChange={(event) => setForm((prev) => ({ ...prev, recipientEmail: event.target.value }))} />
-        <input className="rounded-[18px] bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-bold outline-none" placeholder="Amount" inputMode="decimal" value={form.amount} onChange={(event) => setForm((prev) => ({ ...prev, amount: event.target.value }))} />
-        <input className="rounded-[18px] bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-bold outline-none" placeholder="Description" value={form.description} onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))} />
-        <input className="rounded-[18px] bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-bold outline-none" type="date" value={form.dueDate} onChange={(event) => setForm((prev) => ({ ...prev, dueDate: event.target.value }))} />
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <PremiumInput
+          type="email"
+          label="Client email"
+          value={form.recipientEmail}
+          onChange={(event) => updateField('recipientEmail', event.target.value)}
+          onBlur={() => markTouched('recipientEmail')}
+          error={visibleErrors.recipientEmail}
+          helperText="Used for invoice delivery and payment reminders."
+          icon={Mail}
+          disabled={saving}
+          inputMode="email"
+          autoComplete="email"
+          required
+        />
+        <PremiumInput
+          label="Amount"
+          value={form.amount}
+          onChange={(event) => updateField('amount', event.target.value)}
+          onBlur={() => markTouched('amount')}
+          error={visibleErrors.amount}
+          helperText={form.amount ? formatMoney(form.amount, form.currency) : 'Enter the invoice total.'}
+          icon={CreditCard}
+          disabled={saving}
+          inputMode="decimal"
+          required
+        />
+        <PremiumInput
+          label="Description"
+          value={form.description}
+          onChange={(event) => updateField('description', event.target.value)}
+          helperText="Shown on the invoice line item."
+          icon={FileText}
+          disabled={saving}
+        />
+        <div className="grid gap-3 sm:grid-cols-[0.7fr_1fr]">
+          <label className="block">
+            <span className="text-xs font-black uppercase tracking-[0.14em] text-[var(--tg-hint-color)]">Currency</span>
+            <select
+              value={form.currency}
+              onChange={(event) => updateField('currency', event.target.value)}
+              onBlur={() => markTouched('currency')}
+              disabled={saving}
+              aria-invalid={visibleErrors.currency ? 'true' : 'false'}
+              className="mt-2 w-full rounded-[18px] bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-black text-[var(--tg-text-color)] outline-none transition focus:ring-2 focus:ring-[var(--tg-button-color)] disabled:opacity-60"
+            >
+              {['USD', 'EUR', 'GBP'].map((currency) => (
+                <option key={currency} value={currency}>{currency}</option>
+              ))}
+            </select>
+          </label>
+          <PremiumInput
+            type="date"
+            label="Due date"
+            value={form.dueDate}
+            onChange={(event) => updateField('dueDate', event.target.value)}
+            onBlur={() => markTouched('dueDate')}
+            error={visibleErrors.dueDate}
+            icon={Clock3}
+            disabled={saving}
+          />
+        </div>
       </div>
+      <ComposerFeedback {...feedback} />
       <div className="mt-5 flex flex-wrap gap-2">
-        <PrimaryButton icon={Plus} onClick={create} disabled={saving || !user?.id}>{saving ? 'Creating' : 'Create invoice'}</PrimaryButton>
-        <SecondaryButton icon={Eye} onClick={() => toast.success('Preview ready')}>Preview</SecondaryButton>
+        <PrimaryButton icon={Plus} onClick={create} disabled={!canSubmit}>{saving ? 'Creating' : 'Create invoice'}</PrimaryButton>
+        <SecondaryButton icon={Eye} onClick={preview}>Preview</SecondaryButton>
       </div>
     </section>
   );
@@ -705,6 +904,9 @@ function PayoutComposer({ onClose, availableBalance = 0 }) {
   const telegram = useTelegramMiniApp();
   const [saving, setSaving] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [touched, setTouched] = useState({});
+  const [feedback, setFeedback] = useState(null);
   const [form, setForm] = useState({
     receiver: '',
     amount: '',
@@ -714,49 +916,59 @@ function PayoutComposer({ onClose, availableBalance = 0 }) {
   const parsedAmount = Number(form.amount);
   const amountReady = Number.isFinite(parsedAmount) && parsedAmount > 0;
   const exceedsBalance = amountReady && availableBalance > 0 && parsedAmount > availableBalance;
-  const canSubmit = Boolean(user?.id && form.receiver && amountReady && !exceedsBalance && confirmed && !saving);
+  const errors = useMemo(
+    () => validatePayoutComposer(form, user, availableBalance, confirmed),
+    [availableBalance, confirmed, form, user]
+  );
+  const visibleErrors = useMemo(() => readVisibleErrors(errors, touched, submitted), [errors, submitted, touched]);
+  const firstError = readFirstError(errors);
+  const canSubmit = Boolean(!firstError && !saving);
+
+  const updateField = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    setFeedback(null);
+  };
+
+  const markTouched = (field) => {
+    setTouched((current) => ({ ...current, [field]: true }));
+  };
 
   const checkEligibility = () => {
-    if (exceedsBalance) {
-      toast.error('Amount exceeds available balance');
+    setSubmitted(true);
+
+    if (firstError && firstError !== errors.confirmed) {
+      setFeedback({ tone: 'error', icon: AlertTriangle, title: 'Eligibility needs a fix', body: firstError });
+      toast.error(firstError);
       telegram.notify('error');
       return;
     }
 
+    setFeedback({
+      tone: 'success',
+      icon: ShieldCheck,
+      title: 'Eligibility check passed',
+      body: `${form.receiver || 'Receiver'} can request ${amountReady ? formatMoney(parsedAmount, form.currency) : 'this payout'} from the available balance.`
+    });
     toast.success('Eligibility check passed');
     telegram.impact('light');
   };
 
   const create = async () => {
-    if (!user?.id) {
-      toast.error('Open Transferly from Telegram to request a payout');
-      telegram.notify('error');
-      return;
-    }
+    setSubmitted(true);
 
-    if (!form.receiver || !amountReady) {
-      toast.error('Receiver and amount are required');
+    if (firstError) {
+      setFeedback({ tone: 'error', icon: AlertTriangle, title: 'Payout needs a fix', body: firstError });
+      toast.error(firstError);
       telegram.notify('error');
-      return;
-    }
-
-    if (exceedsBalance) {
-      toast.error('Amount exceeds available wallet balance');
-      telegram.notify('error');
-      return;
-    }
-
-    if (!confirmed) {
-      toast.error('Confirm the payout review before submitting');
-      telegram.impact('light');
       return;
     }
 
     setSaving(true);
+    setFeedback({ tone: 'info', icon: Clock3, title: 'Submitting payout', body: 'Sending the payout request for review.' });
     telegram.impact('medium');
 
     const result = await createPayout({
-      receiver: form.receiver,
+      receiver: form.receiver.trim(),
       recipientType: 'EMAIL',
       amount: parsedAmount,
       currency: form.currency,
@@ -766,11 +978,13 @@ function PayoutComposer({ onClose, availableBalance = 0 }) {
     setSaving(false);
 
     if (!result.success) {
+      setFeedback({ tone: 'error', icon: AlertTriangle, title: 'Payout was not submitted', body: result.message || 'Unable to request payout' });
       toast.error(result.message || 'Unable to request payout');
       telegram.notify('error');
       return;
     }
 
+    setFeedback({ tone: 'success', icon: CheckCircle2, title: 'Payout requested', body: 'The request is now in the review workflow.' });
     toast.success('Payout requested');
     telegram.notify('success');
     onClose();
@@ -787,10 +1001,56 @@ function PayoutComposer({ onClose, availableBalance = 0 }) {
           <XCircle size={18} />
         </button>
       </div>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <input className="rounded-[18px] bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-bold outline-none" placeholder="Receiver email" value={form.receiver} onChange={(event) => setForm((prev) => ({ ...prev, receiver: event.target.value }))} />
-        <input className="rounded-[18px] bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-bold outline-none" placeholder="Amount" inputMode="decimal" value={form.amount} onChange={(event) => setForm((prev) => ({ ...prev, amount: event.target.value }))} />
-        <input className="rounded-[18px] bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-bold outline-none sm:col-span-2" placeholder="Note" value={form.note} onChange={(event) => setForm((prev) => ({ ...prev, note: event.target.value }))} />
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <PremiumInput
+          type="email"
+          label="Receiver email"
+          value={form.receiver}
+          onChange={(event) => updateField('receiver', event.target.value)}
+          onBlur={() => markTouched('receiver')}
+          error={visibleErrors.receiver}
+          helperText="Used as the payout recipient identifier."
+          icon={Mail}
+          disabled={saving}
+          inputMode="email"
+          autoComplete="email"
+          required
+        />
+        <PremiumInput
+          label="Amount"
+          value={form.amount}
+          onChange={(event) => updateField('amount', event.target.value)}
+          onBlur={() => markTouched('amount')}
+          error={visibleErrors.amount}
+          helperText={amountReady ? formatMoney(parsedAmount, form.currency) : 'Enter the payout amount.'}
+          icon={CreditCard}
+          disabled={saving}
+          inputMode="decimal"
+          required
+        />
+        <label className="block">
+          <span className="text-xs font-black uppercase tracking-[0.14em] text-[var(--tg-hint-color)]">Currency</span>
+          <select
+            value={form.currency}
+            onChange={(event) => updateField('currency', event.target.value)}
+            onBlur={() => markTouched('currency')}
+            disabled={saving}
+            aria-invalid={visibleErrors.currency ? 'true' : 'false'}
+            className="mt-2 w-full rounded-[18px] bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-black text-[var(--tg-text-color)] outline-none transition focus:ring-2 focus:ring-[var(--tg-button-color)] disabled:opacity-60"
+          >
+            {['USD', 'EUR', 'GBP'].map((currency) => (
+              <option key={currency} value={currency}>{currency}</option>
+            ))}
+          </select>
+        </label>
+        <PremiumInput
+          label="Note"
+          value={form.note}
+          onChange={(event) => updateField('note', event.target.value)}
+          helperText="Optional note for internal review."
+          icon={MessageCircle}
+          disabled={saving}
+        />
       </div>
       <div className="mt-4 grid gap-2 rounded-[24px] bg-[var(--tg-secondary-bg-color)] p-4 sm:grid-cols-4">
         <div>
@@ -816,11 +1076,19 @@ function PayoutComposer({ onClose, availableBalance = 0 }) {
         <input
           type="checkbox"
           checked={confirmed}
-          onChange={(event) => setConfirmed(event.target.checked)}
+          onChange={(event) => {
+            setConfirmed(event.target.checked);
+            setTouched((current) => ({ ...current, confirmed: true }));
+            setFeedback(null);
+          }}
           className="mt-1 h-4 w-4 accent-[var(--tg-button-color)]"
         />
         <span>I confirm this payout request is ready for review.</span>
       </label>
+      {visibleErrors.confirmed ? (
+        <p className="miniapp-field-message mt-2 text-sm font-bold text-rose-600">{visibleErrors.confirmed}</p>
+      ) : null}
+      <ComposerFeedback {...feedback} />
       <div className="mt-5 flex flex-wrap gap-2">
         <PrimaryButton icon={WalletCards} onClick={create} disabled={!canSubmit}>{saving ? 'Submitting' : 'Request payout'}</PrimaryButton>
         <SecondaryButton icon={ShieldCheck} onClick={checkEligibility}>Check eligibility</SecondaryButton>

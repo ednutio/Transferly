@@ -188,6 +188,65 @@ a {
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
+.miniapp-field-message {
+  transform-origin: top left;
+}
+
+.miniapp-feedback-panel {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.875rem;
+  margin-top: 1rem;
+  color: var(--tg-text-color);
+  border: 1px solid var(--miniapp-border-color);
+  border-radius: 1.5rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.miniapp-feedback-info {
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.14), transparent),
+    var(--tg-secondary-bg-color);
+}
+
+.miniapp-feedback-success {
+  background:
+    linear-gradient(135deg, rgba(16, 185, 129, 0.18), transparent),
+    var(--tg-secondary-bg-color);
+}
+
+.miniapp-feedback-error {
+  background:
+    linear-gradient(135deg, rgba(244, 63, 94, 0.18), transparent),
+    var(--tg-secondary-bg-color);
+}
+
+.route-transition-host {
+  min-width: 0;
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--route-accent, #f8812d) 8%, transparent), transparent 18rem);
+}
+
+.route-transition-view {
+  min-width: 0;
+  min-height: 100vh;
+  transform-origin: center top;
+}
+
+.route-transition-view::before {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 60;
+  height: 2px;
+  pointer-events: none;
+  content: '';
+  background: linear-gradient(90deg, transparent, var(--route-accent, #f8812d), transparent);
+  opacity: 0;
+  transform: scaleX(0.35);
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .miniapp-enter {
     animation: miniapp-enter 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -195,6 +254,48 @@ a {
 
   .miniapp-command-hero::before {
     animation: miniapp-hero-sheen 8s ease-in-out infinite;
+  }
+
+  .route-transition-view {
+    will-change: opacity, transform;
+  }
+
+  .route-transition-view[data-phase='enter'][data-direction='forward'] {
+    animation: route-enter-forward 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .route-transition-view[data-phase='enter'][data-direction='back'] {
+    animation: route-enter-back 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .route-transition-view[data-phase='enter'][data-direction='replace'],
+  .route-transition-view[data-phase='enter'][data-direction='neutral'] {
+    animation: route-enter-replace 220ms ease-out both;
+  }
+
+  .route-transition-view[data-phase='exit'][data-direction='forward'] {
+    animation: route-exit-forward 150ms ease-in both;
+  }
+
+  .route-transition-view[data-phase='exit'][data-direction='back'] {
+    animation: route-exit-back 150ms ease-in both;
+  }
+
+  .route-transition-view[data-phase='exit'][data-direction='replace'],
+  .route-transition-view[data-phase='exit'][data-direction='neutral'] {
+    animation: route-exit-replace 150ms ease-in both;
+  }
+
+  .route-transition-view[data-phase='enter']::before {
+    animation: route-accent-scan 420ms ease-out both;
+  }
+
+  .miniapp-field-message {
+    animation: miniapp-field-message 180ms ease-out both;
+  }
+
+  .miniapp-feedback-panel {
+    animation: miniapp-feedback-enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
 }
 
@@ -212,6 +313,118 @@ a {
   from {
     opacity: 0;
     transform: translateY(10px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes route-enter-forward {
+  from {
+    opacity: 0;
+    transform: translate3d(18px, 8px, 0) scale(0.992);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes route-enter-back {
+  from {
+    opacity: 0;
+    transform: translate3d(-18px, 6px, 0) scale(0.994);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes route-enter-replace {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes route-exit-forward {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate3d(-12px, -4px, 0) scale(0.996);
+  }
+}
+
+@keyframes route-exit-back {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate3d(12px, -4px, 0) scale(0.996);
+  }
+}
+
+@keyframes route-exit-replace {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes route-accent-scan {
+  0% {
+    opacity: 0;
+    transform: scaleX(0.3);
+  }
+
+  28% {
+    opacity: 0.82;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes miniapp-field-message {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scaleY(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+@keyframes miniapp-feedback-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
   }
 
   to {

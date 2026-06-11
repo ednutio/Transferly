@@ -6,6 +6,7 @@ import { TelegramMiniAppProvider } from './context/TelegramMiniAppContext';
 import { AdminRoute } from './components/AdminRoute';
 import { MiniAppState } from './components/MiniAppState';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
+import { RouteTransition } from './components/RouteTransition';
 
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const AboutPage = lazy(() => import('./pages/AboutPage'));
@@ -43,9 +44,9 @@ function LegacyServiceRedirect() {
   return <Navigate to={`/miniapp/services/${slug}${location.search}`} replace />;
 }
 
-function AppRoutes() {
+function AppRoutes({ location }) {
   return (
-    <Routes>
+    <Routes location={location}>
       {/* Public routes */}
       <Route path="/" element={<Navigate to="/miniapp" replace />} />
       <Route path="/login" element={<Navigate to="/miniapp" replace />} />
@@ -94,9 +95,13 @@ function AppFrame() {
 
   return (
     <RouteErrorBoundary resetKey={location.pathname}>
-      <Suspense fallback={<RouteFallback />}>
-        <AppRoutes />
-      </Suspense>
+      <RouteTransition>
+        {(transitionLocation) => (
+          <Suspense fallback={<RouteFallback />}>
+            <AppRoutes location={transitionLocation} />
+          </Suspense>
+        )}
+      </RouteTransition>
       <Toaster position="top-right" />
     </RouteErrorBoundary>
   );
