@@ -6,6 +6,7 @@ import DashboardLayout from '../components/DashboardLayout';
 import { useAppContext } from '../context/AppContext';
 import ServiceLogo from '../components/ServiceLogo';
 import { dashboardPreviewSlugs, getServiceBySlug } from '../lib/servicesCatalog';
+import { GlassCard, BalanceCard, StatGrid, AnimatedCounter, PremiumButton } from '../components/ui';
 
 const featuredTools = [
   {
@@ -192,132 +193,121 @@ export default function DashboardPage() {
   return (
     <DashboardLayout>
       <TelegramCommunityModal />
-      <div className="space-y-8 px-4 py-5 md:px-8 md:py-8">
+      <div className="animate-fade-in space-y-8 px-4 py-5 md:px-8 md:py-8">
+        
+        {/* Premium Hero Section */}
+        <section className="animate-slide-down">
+          <GlassCard className="p-8 md:p-12 bg-gradient-to-br from-orange-500 to-orange-600">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-4 flex-1">
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-white/80 uppercase tracking-wider">Welcome back,</p>
+                  <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white">
+                    {firstName} 👋
+                  </h1>
+                </div>
+                <p className="max-w-2xl text-sm md:text-base leading-relaxed text-white/90">
+                  Keep your balance topped up, launch the service you need, and move between receipt work, email work,
+                  and utility actions from one account.
+                </p>
+              </div>
+              <PremiumButton 
+                variant="secondary"
+                size="lg"
+                icon={Wallet}
+                onClick={() => window.location.href = '/buy-point'}
+              >
+                Buy Points
+              </PremiumButton>
+            </div>
+          </GlassCard>
+        </section>
+
+        {/* Stats & Balance Section */}
+        <section className="animate-slide-up" style={{ animationDelay: '100ms' }}>
+          <BalanceCard 
+            label="Available Balance"
+            balance={profile?.points || 0}
+            currency="pts"
+            isVisible={true}
+          />
+        </section>
+
+        {/* Activity Summary Stats Grid */}
+        <section className="space-y-4">
+          <h2 className="text-lg font-bold text-slate-950 dark:text-white">Your Activity</h2>
+          <StatGrid stats={activitySummary.slice(1).map((item) => ({
+            label: item.label,
+            value: item.value,
+            suffix: item.suffix,
+            icon: item.icon
+          }))} />
+        </section>
+
         <section className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_360px]">
           <div className="rounded-[30px] bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
             <div className="flex flex-col gap-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="space-y-2">
-                  <p className="text-sm font-semibold text-slate-500">Welcome back,</p>
-                  <h1 className="text-4xl font-black tracking-[-0.05em] text-slate-950">
-                    {firstName} <span className="align-middle text-2xl">👋</span>
-                  </h1>
-                  <p className="max-w-2xl text-sm leading-7 text-slate-600">
-                    Keep your balance topped up, launch the service you need, and move between receipt work, email work,
-                    and utility actions from one account.
-                  </p>
-                </div>
-                <Link
-                  to="/buy-point"
-                  className="inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-black text-white transition hover:opacity-90"
-                  style={{ backgroundColor: brand }}
-                >
-                  <Wallet size={16} />
-                  Buy Points
-                </Link>
+                {/* Stats moved above - can remove this section or repurpose */}
               </div>
 
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_280px]">
-                <div className="rounded-[26px] bg-[#f8f7f3] p-5">
-                  <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)]">
-                    <div className="rounded-[24px] bg-white p-5 shadow-sm">
-                      <div className="flex items-center gap-2 text-sm font-bold text-slate-500">
-                        <Wallet size={16} className="text-slate-400" />
-                        Total Balance
-                      </div>
-                      <div className="mt-4 flex items-end gap-2">
-                        <span className="text-4xl font-black tracking-[-0.05em] text-slate-950">
-                          {(profile?.points || 0).toLocaleString()}
-                        </span>
-                        <span className="pb-1 text-sm font-semibold text-slate-500">pts</span>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      {primaryLinks.map((item) => (
-                        <Link
-                          key={item.label}
-                          to={item.to}
-                          className="inline-flex items-center justify-between rounded-[22px] bg-white px-4 py-4 text-sm font-black text-slate-950 shadow-sm transition hover:bg-orange-50"
-                        >
-                          <span>{item.label}</span>
-                          <ArrowRight size={16} className="text-slate-400" />
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                  {activitySummary.slice(1).map((item) => {
-                    const Icon = item.icon;
-
-                    return (
-                      <div key={item.label} className="rounded-[24px] bg-[#f8f7f3] p-5">
-                        <div className="flex items-center gap-2 text-sm font-bold text-slate-500">
-                          <Icon size={16} className="text-slate-400" />
-                          {item.label}
-                        </div>
-                        <div className="mt-3 flex items-end gap-2">
-                          <span className="text-3xl font-black tracking-[-0.04em] text-slate-950">{item.value}</span>
-                          {item.suffix ? <span className="pb-1 text-sm font-semibold text-slate-500">{item.suffix}</span> : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
               </div>
+            </div>
+          </div>
+
 
               <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-                <div className="rounded-[24px] bg-[#121212] p-5 text-white">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-2xl font-black tracking-[-0.04em]">Quick Actions</h2>
+                <div className="rounded-[24px] bg-gradient-to-br from-slate-900 to-slate-800 p-6 text-white hover:shadow-lg-glass transition-all duration-300">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-2xl font-black tracking-tight">Quick Actions</h2>
                     <Wallet size={22} className="text-white/35" />
                   </div>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    <Link
-                      to="/buy-point"
-                      className="rounded-2xl bg-white px-4 py-4 text-sm font-black text-slate-950 transition hover:bg-orange-50"
+                  <div className="space-y-3">
+                    <PremiumButton 
+                      variant="secondary"
+                      size="md"
+                      onClick={() => window.location.href = '/buy-point'}
+                      className="w-full"
                     >
                       Buy Points
-                    </Link>
+                    </PremiumButton>
                     <a
                       href="https://t.me/+DhQqLRVqOHpmMmQ0"
                       target="_blank"
                       rel="noreferrer"
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left text-sm font-black text-white transition hover:bg-white/10"
+                      className="flex items-center justify-center rounded-full border-2 border-white/20 bg-white/5 px-4 py-3 text-sm font-black text-white transition hover:bg-white/10"
                     >
                       Join Vendor
                     </a>
                     <button
                       onClick={copyReferralLink}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left text-sm font-black text-white transition hover:bg-white/10 sm:col-span-2"
+                      className="flex items-center justify-center rounded-full border-2 border-white/20 bg-white/5 px-4 py-3 text-sm font-black text-white transition hover:bg-white/10 w-full"
                     >
                       Copy Ref Link
                     </button>
                   </div>
                 </div>
 
-                <div className="rounded-[24px] border border-[#ebe2d4] bg-[#f8f7f3] p-5">
-                  <div className="flex items-center justify-between">
+                <div className="rounded-[24px] border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 hover:shadow-lg-glass transition-all duration-300">
+                  <div className="flex items-center justify-between mb-4">
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Featured</p>
-                      <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">AI Reply</h2>
+                      <p className="text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Featured</p>
+                      <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950 dark:text-white">AI Reply</h2>
                     </div>
-                    <Bot size={22} className="text-slate-400" />
+                    <Bot size={22} className="text-orange-500 opacity-60" />
                   </div>
-                  <p className="mt-4 text-sm leading-7 text-slate-600">
+                  <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
                     Smart AI-powered replies for any conversation.
                   </p>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                    {featuredTools.slice(1).map((tool) => (
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                    {featuredTools.slice(1, 3).map((tool) => (
                       <Link
                         key={tool.title}
                         to={tool.to}
-                        className="rounded-[18px] bg-white px-4 py-4 text-sm font-black text-slate-950 shadow-sm transition hover:bg-orange-50"
+                        className="rounded-2xl bg-slate-50 dark:bg-slate-800 px-4 py-4 text-sm font-bold text-slate-950 dark:text-white shadow-sm transition hover:bg-orange-50 dark:hover:bg-orange-900/30 hover:shadow-md-glass"
                       >
                         <p>{tool.title}</p>
-                        <p className="mt-1 text-xs font-semibold text-slate-500">{tool.body}</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">{tool.badge}</p>
                       </Link>
                     ))}
                   </div>
