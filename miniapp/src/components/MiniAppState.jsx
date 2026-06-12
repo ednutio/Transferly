@@ -40,12 +40,14 @@ export function MiniAppState({
   const Icon = config.icon;
 
   return (
-    <section
+    <main
       className={`flex w-full items-center justify-center px-5 text-center ${compact ? 'min-h-[240px]' : 'min-h-screen bg-[var(--tg-bg-color,#f5f7fb)]'}`}
-      role={tone === 'error' ? 'alert' : 'status'}
-      aria-live={tone === 'loading' ? 'polite' : 'assertive'}
     >
-      <div className="flex max-w-sm flex-col items-center gap-4">
+      <section
+        className="flex max-w-sm flex-col items-center gap-4"
+        role={tone === 'error' ? 'alert' : 'status'}
+        aria-live={tone === 'loading' ? 'polite' : 'assertive'}
+      >
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
           <Icon className={`h-6 w-6 ${config.iconClassName}`} aria-hidden="true" />
         </div>
@@ -67,7 +69,7 @@ export function MiniAppState({
             {actionLabel || 'Try again'}
           </button>
         )}
-      </div>
-    </section>
+      </section>
+    </main>
   );
 }

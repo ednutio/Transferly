@@ -28,20 +28,22 @@ export function ConfirmationModal({
       />
 
       {/* Modal */}
-      <div className="relative z-10 w-full max-w-md mx-4 rounded-3xl bg-white dark:bg-slate-900 p-8 shadow-elevated animate-slide-up">
+      <div className="relative z-10 w-full max-w-md mx-4 rounded-[28px] border border-[var(--miniapp-border-color)] bg-[var(--miniapp-card-bg)] p-8 text-[var(--tg-text-color)] shadow-elevated animate-slide-up">
         <button
+          type="button"
           onClick={onCancel}
-          className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+          aria-label="Close dialog"
+          className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--miniapp-accent-soft)] text-[var(--miniapp-shell-text-muted)] transition-colors hover:text-[var(--tg-text-color)]"
         >
-          <X size={20} />
+          <X size={20} aria-hidden="true" />
         </button>
 
         <div className="mb-6">
-          <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-white">
+          <h2 className="text-2xl font-black tracking-tight text-[var(--tg-text-color)]">
             {title}
           </h2>
           {description && (
-            <p className="mt-3 text-base leading-relaxed text-slate-600 dark:text-slate-400">
+            <p className="mt-3 text-base leading-relaxed text-[var(--miniapp-shell-text-muted)]">
               {description}
             </p>
           )}
@@ -49,21 +51,23 @@ export function ConfirmationModal({
 
         <div className="flex gap-3">
           <button
+            type="button"
             onClick={onCancel}
             disabled={isLoading}
-            className="flex-1 px-4 py-3 rounded-full border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold transition-all hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+            className="flex-1 px-4 py-3 rounded-full border border-[var(--miniapp-border-color)] bg-[var(--tg-secondary-bg-color)] text-[var(--tg-text-color)] font-bold transition-all hover:brightness-110 disabled:opacity-50"
           >
             {cancelLabel}
           </button>
 
           <button
+            type="button"
             onClick={onConfirm}
             disabled={isLoading}
             className={`
               flex-1 px-4 py-3 rounded-full font-bold transition-all
               ${isDangerous
-                ? 'bg-red-500 hover:bg-red-600 text-white'
-                : 'bg-orange-500 hover:bg-orange-600 text-white'
+                ? 'bg-[var(--tg-destructive-text-color)] text-white hover:brightness-110'
+                : 'bg-[var(--tg-button-color)] text-[var(--tg-button-text-color)] hover:brightness-110'
               }
               disabled:opacity-50 disabled:cursor-not-allowed
               inline-flex items-center justify-center gap-2

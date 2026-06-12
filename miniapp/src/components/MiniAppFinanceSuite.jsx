@@ -400,6 +400,119 @@ function RecordDetailPanel({ title, amount, status, rows, events, action }) {
   );
 }
 
+const transactionSummaryGroups = [
+  {
+    label: 'Settled',
+    statuses: ['PAID', 'COMPLETED', 'SUCCEEDED'],
+    tone: 'success',
+    icon: CheckCircle2
+  },
+  {
+    label: 'In motion',
+    statuses: ['SENT', 'PROCESSING', 'PENDING', 'PENDING_APPROVAL', 'AWAITING_CONFIRMATION'],
+    tone: 'warn',
+    icon: Clock3
+  },
+  {
+    label: 'Needs action',
+    statuses: ['FAILED', 'CANCELLED', 'REJECTED', 'DISPUTED', 'HOLD'],
+    tone: 'danger',
+    icon: AlertTriangle
+  }
+];
+
+function TransactionStatusSummary({ title, records, emptyLabel = 'No records' }) {
+  const summary = transactionSummaryGroups.map((group) => {
+    const groupRecords = records.filter((record) => group.statuses.includes(String(record?.status || '').toUpperCase()));
+    const total = groupRecords.reduce((sum, record) => sum + readAmount(record), 0);
+    const currency = readCurrency(groupRecords[0] || records[0] || {});
+
+    return {
+      ...group,
+      count: groupRecords.length,
+      total,
+      currency
+    };
+  });
+
+  return (
+    <section aria-label={title} className="rounded-[30px] bg-[var(--tg-section-bg-color)] p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--tg-hint-color)]">Workflow summary</p>
+          <h3 className="mt-2 text-xl font-black tracking-[-0.035em] text-[var(--tg-text-color)]">{title}</h3>
+        </div>
+        <StatusBadge status={records.length ? 'live' : emptyLabel} />
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        {summary.map((item) => {
+          const Icon = item.icon;
+
+          return (
+            <div key={item.label} className={`rounded-[22px] p-4 ${toneClass(item.count ? item.tone : 'default')}`}>
+              <div className="flex items-center justify-between gap-3">
+                <Icon size={18} />
+                <span className="text-xs font-black">{item.count.toLocaleString()}</span>
+              </div>
+              <p className="mt-3 text-sm font-black">{item.label}</p>
+              <p className="mt-1 text-xs font-bold opacity-80">{item.count ? formatMoney(item.total, item.currency) : emptyLabel}</p>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function TransactionRecordRow({
+  recordId,
+  primary,
+  amount,
+  currency,
+  status,
+  timestamp,
+  meta,
+  icon: Icon = FileText,
+  selected = false,
+  onSelect
+}) {
+  return (
+    <article className="min-w-0">
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={selected}
+        aria-label={`${primary} ${recordId}`}
+        className={`miniapp-pressable w-full min-w-0 rounded-[26px] bg-[var(--tg-section-bg-color)] p-4 text-left shadow-sm transition ${
+          selected
+            ? 'ring-2 ring-[var(--tg-button-color)] ring-offset-2 ring-offset-[var(--tg-bg-color)]'
+            : 'hover:-translate-y-0.5 hover:shadow-[0_16px_40px_rgba(15,23,42,0.10)]'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] bg-[var(--tg-secondary-bg-color)] text-[var(--tg-button-color)]">
+              <Icon size={18} />
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-black text-[var(--tg-text-color)]">{primary}</p>
+              <p className="mt-1 truncate text-xs font-bold text-[var(--tg-hint-color)]">{recordId}</p>
+            </div>
+          </div>
+          <StatusBadge status={status} />
+        </div>
+        <div className="mt-4 flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-2xl font-black tracking-[-0.045em] text-[var(--tg-text-color)]">{formatMoney(amount, currency)}</p>
+            {meta ? <p className="mt-1 truncate text-xs font-bold text-[var(--tg-subtitle-text-color)]">{meta}</p> : null}
+          </div>
+          <p className="shrink-0 text-xs font-bold text-[var(--tg-hint-color)]">{timestamp}</p>
+        </div>
+      </button>
+    </article>
+  );
+}
+
 function buildInvoiceRows(invoice) {
   return [
     ['Recipient', readInvoiceRecipient(invoice)],
@@ -1156,11 +1269,140 @@ function PayoutReadinessGuide({ records, profile }) {
   );
 }
 
+const collectionWorkspaceLinks = [
+  {
+    label: 'PayPal invoices',
+    body: 'Create, send, remind, and reconcile PayPal invoice records.',
+    to: '/miniapp/services/paypal/invoices',
+    icon: FileText,
+    badge: 'Live'
+  },
+  {
+    label: 'Stripe payments',
+    body: 'Prepare Stripe payments, billing, and Connect collection lanes.',
+    to: '/miniapp/services/stripe/payments',
+    icon: CreditCard,
+    badge: 'Workspace'
+  },
+  {
+    label: 'Wise receive',
+    body: 'Review receiving, balances, and transfer-ready account details.',
+    to: '/miniapp/services/wise/receive',
+    icon: WalletCards,
+    badge: 'Preview'
+  },
+  {
+    label: 'Paystack collections',
+    body: 'Open collections, customers, virtual accounts, and subscription lanes.',
+    to: '/miniapp/services/paystack/collections',
+    icon: BadgeCheck,
+    badge: 'Workspace'
+  },
+  {
+    label: 'Flutterwave collections',
+    body: 'Manage collection, settlement, transfer, and refund lanes.',
+    to: '/miniapp/services/flutterwave/collections',
+    icon: LineChart,
+    badge: 'Workspace'
+  },
+  {
+    label: 'Crypto receive',
+    body: 'Track receive flows, confirmations, activity, and release readiness.',
+    to: '/miniapp/services/crypto/receive',
+    icon: LockKeyhole,
+    badge: 'Preview'
+  }
+];
+
+const sendingWorkspaceLinks = [
+  {
+    label: 'PayPal payouts',
+    body: 'Create, review, approve, and refresh PayPal payout records.',
+    to: '/miniapp/services/paypal/payouts',
+    icon: WalletCards,
+    badge: 'Live'
+  },
+  {
+    label: 'Stripe Connect',
+    body: 'Review connected-account transfer and platform balance lanes.',
+    to: '/miniapp/services/stripe/connect',
+    icon: CreditCard,
+    badge: 'Workspace'
+  },
+  {
+    label: 'Wise send',
+    body: 'Open Wise send, balances, activity, and compliance lanes.',
+    to: '/miniapp/services/wise/send',
+    icon: ArrowRight,
+    badge: 'Preview'
+  },
+  {
+    label: 'Flutterwave transfers',
+    body: 'Review transfer, settlement, refund, and activity lanes.',
+    to: '/miniapp/services/flutterwave/transfers',
+    icon: LineChart,
+    badge: 'Workspace'
+  },
+  {
+    label: 'Crypto send',
+    body: 'Open sending, confirmation, activity, and security lanes.',
+    to: '/miniapp/services/crypto/send',
+    icon: LockKeyhole,
+    badge: 'Preview'
+  }
+];
+
+function ProviderWorkflowEntryPanel({ eyebrow, title, body, links, legacyActionLabel, onLegacyAction }) {
+  return (
+    <section className="rounded-[30px] bg-[var(--tg-section-bg-color)] p-5 shadow-sm">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--tg-hint-color)]">{eyebrow}</p>
+          <h3 className="mt-2 text-2xl font-black tracking-[-0.04em] text-[var(--tg-text-color)]">{title}</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--tg-subtitle-text-color)]">{body}</p>
+        </div>
+        {onLegacyAction ? (
+          <SecondaryButton icon={Plus} onClick={onLegacyAction}>{legacyActionLabel}</SecondaryButton>
+        ) : null}
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {links.map((link) => {
+          const Icon = link.icon;
+
+          return (
+            <Link
+              key={link.to}
+              to={link.to}
+              className="group rounded-[22px] bg-[var(--tg-secondary-bg-color)] p-4 text-[var(--tg-text-color)] transition active:scale-[0.99]"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[17px] bg-[var(--tg-section-bg-color)] text-[var(--tg-button-color)]">
+                  <Icon size={20} />
+                </span>
+                <span className="rounded-full bg-[var(--tg-section-bg-color)] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-[var(--tg-hint-color)]">
+                  {link.badge}
+                </span>
+              </div>
+              <h4 className="mt-4 text-base font-black tracking-[-0.025em]">{link.label}</h4>
+              <p className="mt-2 line-clamp-3 text-sm leading-6 text-[var(--tg-subtitle-text-color)]">{link.body}</p>
+              <div className="mt-4 inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-[var(--tg-button-color)]">
+                Open workspace
+                <ArrowRight size={14} className="transition group-hover:translate-x-0.5" />
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function InvoicesSection() {
   const { invoices, loading, refreshInvoice, sendInvoiceReminder } = useAppContext();
   const telegram = useTelegramMiniApp();
   const [query, setQuery] = useState('');
   const [showComposer, setShowComposer] = useState(false);
+  const [selectedId, setSelectedId] = useState('');
   const records = invoices;
   const filtered = records.filter((invoice) =>
     [readInvoiceId(invoice), readInvoiceRecipient(invoice), readInvoiceDescription(invoice), invoice?.status]
@@ -1169,7 +1411,7 @@ export function InvoicesSection() {
       .toLowerCase()
       .includes(query.toLowerCase())
   );
-  const selected = filtered[0];
+  const selected = filtered.find((invoice) => readInvoiceId(invoice) === selectedId) || filtered[0];
 
   const copyLink = async () => {
     await navigator.clipboard?.writeText(selected?.invoice_link || selected?.pay_url || selected?.paypal_invoice_url || readInvoiceId(selected));
@@ -1180,11 +1422,19 @@ export function InvoicesSection() {
   return (
     <div className="space-y-4">
       <SuiteHeader
-        eyebrow="Invoice center"
-        title="Create, track, remind, and collect."
-        body="A polished invoice workspace with lifecycle visibility, authenticated records, reminders, links, and detail timelines."
+        eyebrow="Aggregate collections"
+        title="Cross-provider invoice dashboard."
+        body="Provider workspaces are now the primary place to create, send, and reconcile collection flows. This view stays available for cross-provider visibility and legacy records."
         icon={FileText}
-        action={<PrimaryButton icon={Plus} onClick={() => setShowComposer(true)}>New invoice</PrimaryButton>}
+        action={<PrimaryButton icon={ArrowRight} to="/miniapp/services/paypal/invoices">Open PayPal invoices</PrimaryButton>}
+      />
+      <ProviderWorkflowEntryPanel
+        eyebrow="Provider-first collection"
+        title="Start collection work inside a provider workspace."
+        body="Choose the provider lane that matches the collection method, then return here when you need an aggregate view across records."
+        links={collectionWorkspaceLinks}
+        legacyActionLabel="Use aggregate composer"
+        onLegacyAction={() => setShowComposer(true)}
       />
       {showComposer ? <InvoiceComposer onClose={() => setShowComposer(false)} /> : null}
       <div className="grid gap-3 sm:grid-cols-4">
@@ -1193,24 +1443,25 @@ export function InvoicesSection() {
         <MetricCard icon={Clock3} label="Open" value={records.filter((record) => ['SENT', 'PENDING'].includes(String(record.status).toUpperCase())).length.toLocaleString()} />
         <MetricCard icon={AlertTriangle} label="Attention" value={records.filter((record) => ['FAILED', 'DISPUTED', 'CANCELLED'].includes(String(record.status).toUpperCase())).length.toLocaleString()} />
       </div>
+      <TransactionStatusSummary title="Invoice workflow summary" records={records} emptyLabel="No invoices" />
       <SearchBar query={query} onQuery={setQuery} placeholder="Search invoices, clients, status" />
       {filtered.length ? (
         <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(320px,1.1fr)]">
           <div className="min-w-0 space-y-3">
             {filtered.map((invoice) => (
-              <article key={readInvoiceId(invoice)} className="min-w-0 rounded-[26px] bg-[var(--tg-section-bg-color)] p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-black text-[var(--tg-text-color)]">{readInvoiceRecipient(invoice)}</p>
-                    <p className="mt-1 truncate text-xs font-bold text-[var(--tg-hint-color)]">{readInvoiceId(invoice)}</p>
-                  </div>
-                  <StatusBadge status={invoice?.status} />
-                </div>
-                <div className="mt-4 flex items-end justify-between gap-3">
-                  <p className="text-2xl font-black tracking-[-0.045em] text-[var(--tg-text-color)]">{formatMoney(readAmount(invoice), readCurrency(invoice))}</p>
-                  <p className="text-xs font-bold text-[var(--tg-hint-color)]">{formatDate(readInvoiceCreatedAt(invoice))}</p>
-                </div>
-              </article>
+              <TransactionRecordRow
+                key={readInvoiceId(invoice)}
+                recordId={readInvoiceId(invoice)}
+                primary={readInvoiceRecipient(invoice)}
+                amount={readAmount(invoice)}
+                currency={readCurrency(invoice)}
+                status={invoice?.status}
+                timestamp={formatDate(readInvoiceCreatedAt(invoice))}
+                meta={readInvoiceDescription(invoice)}
+                icon={FileText}
+                selected={readInvoiceId(invoice) === readInvoiceId(selected)}
+                onSelect={() => setSelectedId(readInvoiceId(invoice))}
+              />
             ))}
           </div>
           <RecordDetailPanel
@@ -1236,7 +1487,7 @@ export function InvoicesSection() {
         <EmptyState
           icon={FileText}
           title={loading ? 'Loading invoices' : query ? 'No invoices match' : 'No invoices yet'}
-          body={query ? 'Clear the search or create a new invoice from the composer.' : 'Create a PayPal invoice to populate this workspace with live records.'}
+          body={query ? 'Clear the search or open the relevant provider workspace.' : 'Open a provider collection workspace to create records, then use this dashboard for aggregate visibility.'}
         />
       )}
     </div>
@@ -1247,6 +1498,7 @@ export function PayoutsSection() {
   const { payouts, profile, loading, refreshPayout, cancelUnclaimedPayout } = useAppContext();
   const [query, setQuery] = useState('');
   const [showComposer, setShowComposer] = useState(false);
+  const [selectedId, setSelectedId] = useState('');
   const records = payouts;
   const filtered = records.filter((payout) =>
     [readPayoutId(payout), readPayoutReceiver(payout), readPayoutNote(payout), payout?.status]
@@ -1255,7 +1507,7 @@ export function PayoutsSection() {
       .toLowerCase()
       .includes(query.toLowerCase())
   );
-  const selected = filtered[0];
+  const selected = filtered.find((payout) => readPayoutId(payout) === selectedId) || filtered[0];
   const availableBalance = readWalletAmount(profile, 'available_balance');
   const pendingAmount = records
     .filter((record) => ['PENDING', 'PENDING_APPROVAL', 'PROCESSING'].includes(String(record.status).toUpperCase()))
@@ -1264,11 +1516,19 @@ export function PayoutsSection() {
   return (
     <div className="space-y-4">
       <SuiteHeader
-        eyebrow="Payout center"
-        title="Review funds before they leave."
-        body="Eligibility, risk holds, payout timelines, and retry controls sit in one mobile-first operations surface."
+        eyebrow="Aggregate sending"
+        title="Cross-provider payout dashboard."
+        body="Provider-specific send, transfer, and payout lanes are now the primary place to prepare money movement. This view stays available for aggregate review and legacy controls."
         icon={WalletCards}
-        action={<PrimaryButton icon={Plus} onClick={() => setShowComposer(true)}>Request payout</PrimaryButton>}
+        action={<PrimaryButton icon={ArrowRight} to="/miniapp/services/paypal/payouts">Open PayPal payouts</PrimaryButton>}
+      />
+      <ProviderWorkflowEntryPanel
+        eyebrow="Provider-first sending"
+        title="Start sending work inside a provider workspace."
+        body="Choose the provider lane that matches the transfer method, then use this dashboard to compare queue state and exception handling."
+        links={sendingWorkspaceLinks}
+        legacyActionLabel="Use aggregate request"
+        onLegacyAction={() => setShowComposer(true)}
       />
       {showComposer ? <PayoutComposer onClose={() => setShowComposer(false)} availableBalance={availableBalance} /> : null}
       <div className="grid gap-3 sm:grid-cols-4">
@@ -1278,24 +1538,25 @@ export function PayoutsSection() {
         <MetricCard icon={CheckCircle2} label="Completed" value={records.filter((record) => String(record.status).toUpperCase() === 'COMPLETED').length.toLocaleString()} />
       </div>
       <PayoutReadinessGuide records={records} profile={profile} />
+      <TransactionStatusSummary title="Payout workflow summary" records={records} emptyLabel="No payouts" />
       <SearchBar query={query} onQuery={setQuery} placeholder="Search payouts, receivers, status" />
       {filtered.length ? (
         <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(320px,1.1fr)]">
           <div className="min-w-0 space-y-3">
             {filtered.map((payout) => (
-              <article key={readPayoutId(payout)} className="min-w-0 rounded-[26px] bg-[var(--tg-section-bg-color)] p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-black text-[var(--tg-text-color)]">{readPayoutReceiver(payout)}</p>
-                    <p className="mt-1 truncate text-xs font-bold text-[var(--tg-hint-color)]">{readPayoutId(payout)}</p>
-                  </div>
-                  <StatusBadge status={payout?.status} />
-                </div>
-                <div className="mt-4 flex items-end justify-between gap-3">
-                  <p className="text-2xl font-black tracking-[-0.045em] text-[var(--tg-text-color)]">{formatMoney(readAmount(payout), readCurrency(payout))}</p>
-                  <p className="text-xs font-bold text-[var(--tg-hint-color)]">{formatDate(readPayoutCreatedAt(payout))}</p>
-                </div>
-              </article>
+              <TransactionRecordRow
+                key={readPayoutId(payout)}
+                recordId={readPayoutId(payout)}
+                primary={readPayoutReceiver(payout)}
+                amount={readAmount(payout)}
+                currency={readCurrency(payout)}
+                status={payout?.status}
+                timestamp={formatDate(readPayoutCreatedAt(payout))}
+                meta={readPayoutNote(payout)}
+                icon={WalletCards}
+                selected={readPayoutId(payout) === readPayoutId(selected)}
+                onSelect={() => setSelectedId(readPayoutId(payout))}
+              />
             ))}
           </div>
           <RecordDetailPanel
@@ -1320,7 +1581,7 @@ export function PayoutsSection() {
         <EmptyState
           icon={WalletCards}
           title={loading ? 'Loading payouts' : query ? 'No payouts match' : 'No payouts yet'}
-          body={query ? 'Clear the search or submit a new payout request.' : 'Submit a payout request to populate this operations surface.'}
+          body={query ? 'Clear the search or open the relevant provider workspace.' : 'Open a provider sending workspace to create records, then use this dashboard for aggregate review.'}
         />
       )}
     </div>

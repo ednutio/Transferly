@@ -45,7 +45,7 @@ export function PremiumInput({
           <Icon className={`
             absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5
             transition-colors duration-200
-            ${focused ? 'text-orange-500' : 'text-slate-400'}
+            ${focused ? 'text-[var(--tg-button-color)]' : 'text-slate-400'}
             ${disabled ? 'opacity-50' : ''}
           `} />
         )}
@@ -68,7 +68,7 @@ export function PremiumInput({
             border-b-2 bg-transparent dark:bg-slate-900/30
             transition-all duration-200 outline-none font-medium
             border-slate-200 dark:border-slate-700
-            focus:border-orange-500 dark:focus:border-orange-400
+            focus:border-[var(--tg-button-color)] dark:focus:border-[var(--tg-button-color)]
             placeholder-slate-400 dark:placeholder-slate-500
             disabled:opacity-50 disabled:cursor-not-allowed
             ${error ? 'border-red-500 dark:border-red-400 focus:border-red-600' : ''}

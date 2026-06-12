@@ -7,6 +7,11 @@ import { AdminRoute } from './components/AdminRoute';
 import { MiniAppState } from './components/MiniAppState';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { RouteTransition } from './components/RouteTransition';
+import {
+  getProviderWorkspaceRoute,
+  isProviderLaneSupported,
+  isProviderManifestSlug
+} from './lib/providerManifests';
 
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const AboutPage = lazy(() => import('./pages/AboutPage'));
@@ -27,18 +32,52 @@ function MiniAppRedirect({ to }) {
   return <Navigate to={`${to}${location.search}`} replace />;
 }
 
+const legacyProviderViewAliases = {
+  activity: 'activity',
+  balances: 'balances',
+  billing: 'billing',
+  collections: 'collections',
+  compliance: 'compliance',
+  confirmations: 'confirmations',
+  connect: 'connect',
+  customers: 'customers',
+  developer: 'developer',
+  invoice: 'invoices',
+  invoices: 'invoices',
+  overview: 'overview',
+  payout: 'payouts',
+  payouts: 'payouts',
+  payments: 'payments',
+  receive: 'receive',
+  refunds: 'refunds',
+  security: 'security',
+  send: 'send',
+  settlements: 'settlements',
+  subscriptions: 'subscriptions',
+  transfers: 'transfers',
+  'virtual-accounts': 'virtual-accounts'
+};
+
+// Legacy service links used ?view=...; preserve deep links by mapping those
+// values into provider workspace lanes and keeping unrelated query filters.
+function buildLegacyProviderRoute(slug, lane, params) {
+  params.delete('view');
+  const query = params.toString();
+
+  return `${getProviderWorkspaceRoute(slug, lane)}${query ? `?${query}` : ''}`;
+}
+
 function LegacyServiceRedirect() {
   const { slug = '' } = useParams();
   const location = useLocation();
   const params = new URLSearchParams(location.search);
-  const view = params.get('view');
+  const view = params.get('view') || '';
+  const normalizedSlug = slug.toLowerCase();
 
-  if (slug === 'paypal' && view === 'invoices') {
-    return <Navigate to="/miniapp/invoices?provider=paypal" replace />;
-  }
-
-  if (slug === 'paypal' && view === 'payouts') {
-    return <Navigate to="/miniapp/payouts?provider=paypal" replace />;
+  if (isProviderManifestSlug(normalizedSlug)) {
+    const requestedLane = legacyProviderViewAliases[view] || view || 'overview';
+    const lane = isProviderLaneSupported(normalizedSlug, requestedLane) ? requestedLane : 'overview';
+    return <Navigate to={buildLegacyProviderRoute(normalizedSlug, lane, params)} replace />;
   }
 
   return <Navigate to={`/miniapp/services/${slug}${location.search}`} replace />;
@@ -59,6 +98,8 @@ function AppRoutes({ location }) {
       <Route path="/miniapp" element={<MiniAppPage />} />
       <Route path="/miniapp/:section" element={<MiniAppPage />} />
       <Route path="/miniapp/:section/:slug" element={<MiniAppPage />} />
+      <Route path="/miniapp/services/:slug/:lane" element={<MiniAppPage />} />
+      <Route path="/miniapp/services/:slug/:lane/*" element={<MiniAppPage />} />
       <Route path="/miniapp/:section/:slug/*" element={<MiniAppPage />} />
 
       {/* Legacy web-dashboard routes now land in the Telegram Mini App workspace. */}

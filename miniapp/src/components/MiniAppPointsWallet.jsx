@@ -290,7 +290,12 @@ export default function MiniAppPointsWallet() {
     updateTopUpOrderStatus,
     user
   } = useAppContext();
-  const telegram = useTelegramMiniApp();
+  const {
+    configureMainButton,
+    impact,
+    notify,
+    showConfirm
+  } = useTelegramMiniApp();
   const services = useMemo(serviceOptions, []);
   const [selectedMethodId, setSelectedMethodId] = useState(fundingMethods[0].id);
   const [selectedPoints, setSelectedPoints] = useState(100);
@@ -316,7 +321,7 @@ export default function MiniAppPointsWallet() {
     setSelectedPoints(points);
     setCustomPoints('');
     setOperationState({ status: 'idle' });
-    telegram.impact('light');
+    impact('light');
   };
 
   const createOrder = useCallback(async () => {
@@ -331,7 +336,7 @@ export default function MiniAppPointsWallet() {
         description: 'Open Transferly from Telegram to create a funding order.'
       });
       toast.error('Open Transferly from Telegram to create a funding order');
-      telegram.notify('error');
+      notify('error');
       return;
     }
 
@@ -342,7 +347,7 @@ export default function MiniAppPointsWallet() {
         description: 'Point orders require at least 5 points.'
       });
       toast.error('Choose at least 5 points');
-      telegram.impact('light');
+      impact('light');
       return;
     }
 
@@ -352,7 +357,7 @@ export default function MiniAppPointsWallet() {
       title: 'Creating point order',
       description: `Preparing ${amountLabel} through ${selectedMethod.title}.`
     });
-    telegram.impact('medium');
+    impact('medium');
 
     try {
       const result = await createTopUpOrder({
@@ -373,7 +378,7 @@ export default function MiniAppPointsWallet() {
           description: result.message || 'Try again when the Telegram session is active.'
         });
         toast.error(result.message || 'Unable to create order');
-        telegram.notify('error');
+        notify('error');
         return;
       }
 
@@ -383,7 +388,7 @@ export default function MiniAppPointsWallet() {
         description: 'Send the payment proof, then mark the order paid from the timeline.'
       });
       toast.success('Point order created');
-      telegram.notify('success');
+      notify('success');
     } catch (_error) {
       setOperationState({
         status: 'retry',
@@ -391,18 +396,32 @@ export default function MiniAppPointsWallet() {
         description: 'Check your connection and try again.'
       });
       toast.error('Unable to create order');
-      telegram.notify('error');
+      notify('error');
     } finally {
       setCreating(false);
     }
-  }, [activePoints, amountLabel, authenticated, createTopUpOrder, creating, selectedMethod, selectedService?.title, serviceIntent, telegram]);
+  }, [
+    activePoints,
+    amountLabel,
+    authenticated,
+    createTopUpOrder,
+    creating,
+    impact,
+    notify,
+    selectedMethod.id,
+    selectedMethod.instructions,
+    selectedMethod.title,
+    selectedMethod.vendorUrl,
+    selectedService?.title,
+    serviceIntent
+  ]);
 
   const markPaid = async (order) => {
     if (!order?.order_id || markingPaid) {
       return;
     }
 
-    const confirmed = await telegram.showConfirm?.('Mark this order as paid and notify support?');
+    const confirmed = await showConfirm?.('Mark this order as paid and notify support?');
     if (confirmed === false) {
       return;
     }
@@ -413,7 +432,7 @@ export default function MiniAppPointsWallet() {
       title: 'Updating order status',
       description: `${order.order_id} is being moved to support confirmation.`
     });
-    telegram.impact('medium');
+    impact('medium');
 
     const result = await updateTopUpOrderStatus(order.order_id, 'awaiting_confirmation');
     setMarkingPaid(false);
@@ -425,7 +444,7 @@ export default function MiniAppPointsWallet() {
         description: result.message || 'Try again or send the proof through support chat.'
       });
       toast.error(result.message || 'Unable to update order');
-      telegram.notify('error');
+      notify('error');
       return;
     }
 
@@ -435,17 +454,17 @@ export default function MiniAppPointsWallet() {
       description: 'Support will review the payment proof before releasing points.'
     });
     toast.success('Order marked as awaiting confirmation');
-    telegram.notify('success');
+    notify('success');
   };
 
   useEffect(() => {
-    return telegram.configureMainButton?.({
+    return configureMainButton?.({
       text: creating ? 'Creating Order' : 'Create Point Order',
       enabled: canCreate,
       loading: creating,
       onClick: createOrder
     });
-  }, [canCreate, createOrder, creating, telegram.configureMainButton]);
+  }, [canCreate, configureMainButton, createOrder, creating]);
 
   return (
     <div className="space-y-4">
@@ -523,7 +542,7 @@ export default function MiniAppPointsWallet() {
               value={serviceIntent}
               onChange={(event) => {
                 setServiceIntent(event.target.value);
-                telegram.impact('light');
+                impact('light');
               }}
               className="mt-2 w-full rounded-[18px] border border-black/5 bg-[var(--tg-secondary-bg-color)] px-4 py-3 text-sm font-bold text-[var(--tg-text-color)] outline-none transition focus:border-[var(--tg-button-color)]"
             >
@@ -543,7 +562,7 @@ export default function MiniAppPointsWallet() {
             active={method.id === selectedMethodId}
             onSelect={() => {
               setSelectedMethodId(method.id);
-              telegram.impact('light');
+              impact('light');
             }}
           />
         ))}

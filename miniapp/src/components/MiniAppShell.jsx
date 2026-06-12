@@ -232,8 +232,8 @@ export default function MiniAppShell({
         onClick={() => telegram.impact('light')}
         className={`miniapp-pressable group relative flex items-center justify-center overflow-hidden ${
           compact
-            ? `h-14 flex-col gap-1 rounded-[18px] text-[10px] font-black ${active ? 'bg-[var(--tg-button-color)] text-[var(--tg-button-text-color)] shadow-[0_12px_28px_rgba(248,129,45,0.28)]' : 'text-[var(--miniapp-nav-idle-text)] hover:bg-[var(--miniapp-nav-hover-bg)]'}`
-            : `h-12 w-12 rounded-[19px] ${active ? 'bg-[var(--miniapp-nav-active-bg)] text-[var(--miniapp-nav-active-text)] shadow-[0_14px_32px_rgba(0,0,0,0.16)]' : 'text-[var(--miniapp-nav-idle-text)] hover:bg-[var(--miniapp-nav-hover-bg)] hover:text-[var(--miniapp-shell-text)]'}`
+            ? `h-14 flex-col gap-1 rounded-[18px] text-[10px] font-black ${active ? 'miniapp-active-shadow border border-[var(--miniapp-accent-border)] bg-[var(--miniapp-nav-active-bg)] text-[var(--miniapp-nav-active-text)]' : 'text-[var(--miniapp-nav-idle-text)] hover:bg-[var(--miniapp-nav-hover-bg)] hover:text-[var(--miniapp-shell-text)]'}`
+            : `h-12 w-12 rounded-[19px] ${active ? 'miniapp-active-shadow border border-[var(--miniapp-accent-border)] bg-[var(--miniapp-nav-active-bg)] text-[var(--miniapp-nav-active-text)]' : 'text-[var(--miniapp-nav-idle-text)] hover:bg-[var(--miniapp-nav-hover-bg)] hover:text-[var(--miniapp-shell-text)]'}`
         }`}
         aria-label={item.label}
         title={item.label}
@@ -242,7 +242,7 @@ export default function MiniAppShell({
           <span
             className={`absolute rounded-full ${
               compact
-                ? 'inset-x-5 top-1 h-0.5 bg-current/45'
+                ? 'inset-x-5 top-1 h-0.5 bg-[var(--tg-button-color)]'
                 : 'left-1 top-1/2 h-5 w-1 -translate-y-1/2 bg-[var(--tg-button-color)]'
             }`}
           />
@@ -267,7 +267,7 @@ export default function MiniAppShell({
         <aside className="miniapp-elevated-surface sticky top-0 hidden h-screen w-[86px] shrink-0 flex-col items-center border-r border-[var(--miniapp-border-color)] bg-[var(--miniapp-shell-bg)] px-3 py-4 backdrop-blur-2xl md:flex">
           <Link
             to="/miniapp"
-            className="miniapp-pressable flex h-[52px] w-[52px] items-center justify-center rounded-[23px] bg-[var(--tg-button-color)] text-sm font-black text-[var(--tg-button-text-color)] shadow-[0_18px_44px_rgba(248,129,45,0.34)]"
+            className="miniapp-pressable miniapp-logo-mark flex h-[52px] w-[52px] items-center justify-center rounded-[23px] text-sm font-black"
             aria-label="Transferly dashboard"
           >
             TR
@@ -302,7 +302,7 @@ export default function MiniAppShell({
                 </button>
                 <Link
                   to="/miniapp"
-                  className="miniapp-pressable flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] bg-[var(--tg-button-color)] text-xs font-black text-[var(--tg-button-text-color)] shadow-[0_12px_28px_rgba(248,129,45,0.28)] md:hidden"
+                  className="miniapp-pressable miniapp-logo-mark flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] text-xs font-black md:hidden"
                   aria-label="Transferly dashboard"
                 >
                   TR
@@ -382,8 +382,8 @@ export default function MiniAppShell({
             {children}
           </main>
 
-          <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--miniapp-border-color)] bg-[var(--miniapp-bottom-bg)] px-3 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 backdrop-blur-2xl md:hidden">
-            <div className="mx-auto grid max-w-[640px] grid-cols-5 gap-1 rounded-[23px] border border-[var(--miniapp-border-color)] bg-[var(--miniapp-bottom-panel-bg)] p-1 shadow-[0_18px_45px_rgba(0,0,0,0.20)]">
+          <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--miniapp-border-color)] bg-[var(--miniapp-bottom-bg)] px-3 pb-[calc(8px+env(safe-area-inset-bottom))] pt-2 backdrop-blur-2xl md:hidden">
+            <div className="mx-auto grid max-w-[640px] grid-cols-5 gap-1 rounded-[24px] border border-[var(--miniapp-border-color)] bg-[var(--miniapp-bottom-panel-bg)] p-1 shadow-[0_18px_45px_rgba(0,0,0,0.22)]">
               {bottomItems.map((item) => renderNavItem(item, true))}
             </div>
           </nav>
@@ -395,20 +395,20 @@ export default function MiniAppShell({
 
           {showCommunityModal ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/72 px-4 py-6 backdrop-blur-sm">
-              <section className="miniapp-enter relative w-full max-w-[420px] rounded-[30px] border border-white/[0.08] bg-[#171513] p-5 text-white shadow-[0_26px_90px_rgba(0,0,0,0.6)]">
+              <section className="miniapp-enter relative w-full max-w-[420px] rounded-[30px] border border-[var(--miniapp-border-color)] bg-[var(--miniapp-card-bg)] p-5 text-[var(--tg-text-color)] shadow-[0_26px_90px_rgba(0,0,0,0.6)]">
                 <button
                   type="button"
                   onClick={dismissCommunityModal}
-                  className="miniapp-pressable absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06] text-white/[0.62] hover:text-white"
+                  className="miniapp-pressable absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--miniapp-accent-soft)] text-[var(--miniapp-shell-text-muted)] hover:text-[var(--miniapp-shell-text)]"
                   aria-label="Close community prompt"
                 >
                   <X size={18} />
                 </button>
-                <div className="flex h-16 w-16 items-center justify-center rounded-[24px] bg-[#f8812d] text-white shadow-[0_18px_44px_rgba(248,129,45,0.32)]">
+                <div className="miniapp-brand-mark flex h-16 w-16 items-center justify-center rounded-[24px] bg-[var(--tg-button-color)] text-[var(--tg-button-text-color)]">
                   <MessageCircle size={30} />
                 </div>
                 <h2 className="mt-5 pr-10 text-2xl font-black tracking-[-0.04em]">Join our Telegram Community</h2>
-                <p className="mt-2 text-sm font-semibold leading-6 text-white/[0.62]">
+                <p className="mt-2 text-sm font-semibold leading-6 text-[var(--miniapp-shell-text-muted)]">
                   Stay connected for updates, support & more.
                 </p>
 
@@ -416,11 +416,11 @@ export default function MiniAppShell({
                   {communityPoints.map((point) => {
                     const Icon = point.icon;
                     return (
-                      <div key={point.text} className="flex items-center gap-3 rounded-[20px] bg-white/[0.05] px-3 py-3">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[15px] bg-[#f8812d]/15 text-[#f8812d]">
+                      <div key={point.text} className="flex items-center gap-3 rounded-[20px] border border-[var(--miniapp-border-color)] bg-[var(--miniapp-panel-bg)] px-3 py-3">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[15px] bg-[var(--miniapp-accent-soft)] text-[var(--tg-button-color)]">
                           <Icon size={18} />
                         </span>
-                        <span className="text-sm font-bold leading-5 text-white/[0.82]">{point.text}</span>
+                        <span className="text-sm font-bold leading-5 text-[var(--miniapp-shell-text)]">{point.text}</span>
                       </div>
                     );
                   })}
@@ -432,7 +432,7 @@ export default function MiniAppShell({
                     target="_blank"
                     rel="noreferrer"
                     onClick={dismissCommunityModal}
-                    className="miniapp-pressable flex items-center justify-center gap-2 rounded-[20px] bg-[#f8812d] px-5 py-3 text-sm font-black text-white shadow-[0_16px_34px_rgba(248,129,45,0.28)]"
+                    className="miniapp-pressable miniapp-brand-mark flex items-center justify-center gap-2 rounded-[20px] bg-[var(--tg-button-color)] px-5 py-3 text-sm font-black text-[var(--tg-button-text-color)]"
                   >
                     <MessageCircle size={17} />
                     Join Telegram Channel
@@ -440,7 +440,7 @@ export default function MiniAppShell({
                   <button
                     type="button"
                     onClick={dismissCommunityModal}
-                    className="miniapp-pressable flex items-center justify-center gap-2 rounded-[20px] bg-white/[0.07] px-5 py-3 text-sm font-black text-white"
+                    className="miniapp-pressable flex items-center justify-center gap-2 rounded-[20px] border border-[var(--miniapp-border-color)] bg-[var(--miniapp-panel-bg)] px-5 py-3 text-sm font-black text-[var(--miniapp-shell-text)]"
                   >
                     <CheckCircle2 size={17} />
                     I've already joined

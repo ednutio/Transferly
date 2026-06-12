@@ -16,20 +16,20 @@ const THEME_KEYS = {
 };
 
 const FALLBACK_THEME = {
-  bg_color: '#f5f7fb',
-  text_color: '#111827',
-  hint_color: '#64748b',
-  link_color: '#229ed9',
-  button_color: '#229ed9',
+  bg_color: '#0b1524',
+  text_color: '#f5f8ff',
+  hint_color: '#7f91a8',
+  link_color: '#6ab3f3',
+  button_color: '#2aabee',
   button_text_color: '#ffffff',
-  secondary_bg_color: '#eef3f8',
-  section_bg_color: '#ffffff',
-  section_header_text_color: '#229ed9',
-  subtitle_text_color: '#64748b',
-  destructive_text_color: '#ef4444',
-  header_bg_color: '#ffffff',
-  bottom_bar_bg_color: '#ffffff',
-  accent_text_color: '#f8812d'
+  secondary_bg_color: '#111f32',
+  section_bg_color: '#15263a',
+  section_header_text_color: '#6ab3f3',
+  subtitle_text_color: '#8ea2b8',
+  destructive_text_color: '#ff6b7a',
+  header_bg_color: '#0b1524',
+  bottom_bar_bg_color: '#0b1524',
+  accent_text_color: '#6ab3f3'
 };
 const DEFAULT_SAFE_AREA = {
   top: 0,

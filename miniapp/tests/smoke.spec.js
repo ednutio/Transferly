@@ -257,16 +257,31 @@ async function mockTransferlyApi(page, options = {}) {
     });
   }
 
-  await page.route('**/api/**', async (route) => {
+  await page.route(/\/api(\/|$)/, async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Accept, Authorization, Content-Type, X-Request-Id, X-Telegram-Init-Data, X-Telegram-Start-Param, X-Transferly-Client',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+    };
 
     const json = (payload) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
+        headers: corsHeaders,
         body: JSON.stringify(payload)
       });
+
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({
+        status: 204,
+        headers: corsHeaders,
+        body: ''
+      });
+      return;
+    }
 
     if (path === '/api/bootstrap') {
       await json({
@@ -527,10 +542,16 @@ async function mockTransferlyApi(page, options = {}) {
 async function primeMiniAppUi(page, options = {}) {
   const { theme = 'dark' } = options;
 
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.addInitScript((selectedTheme) => {
     window.localStorage.setItem('transferly_telegram_modal_dismissed', 'true');
     window.localStorage.setItem('transferly_miniapp_theme', selectedTheme);
   }, theme);
+}
+
+async function expectProviderWorkspace(page, providerName) {
+  await expect(page.getByText('Transferly provider workspace', { exact: true })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('heading', { level: 1, name: providerName })).toBeVisible();
 }
 
 async function expectNoHorizontalOverflow(page) {
@@ -601,9 +622,15 @@ test('mini app service catalog routes tiles into native service detail screens',
   await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Flash Emails' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Bank Slips' })).toBeVisible();
-  await page.getByRole('link', { name: /PayPal/i }).first().click();
+  await page.getByRole('link', { name: /PayPal Open workspace/i }).first().click();
 
-  await expect(page).toHaveURL(/\/miniapp\/services\/paypal$/);
+  await expect(page).toHaveURL(/\/miniapp\/services\/paypal\/overview$/);
+  await expectProviderWorkspace(page, 'PayPal');
+  await expect(page.locator('a[href="/miniapp/services/paypal/invoices"]').first()).toBeVisible();
+  await expect(page.locator('a[href="/miniapp/services/paypal/payouts"]').first()).toBeVisible();
+  await expect(page.locator('a[href="/miniapp/services/paypal/developer"]').first()).toBeVisible();
+
+  await page.goto('/miniapp/services/paypal/payment-links');
   await expect(page.getByRole('link', { name: 'PayPal home page' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Notifications 0' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Menu/i })).toBeVisible();
@@ -614,8 +641,8 @@ test('mini app service catalog routes tiles into native service detail screens',
   await expect(page.getByRole('link', { name: /Transfer to bank/i })).toHaveAttribute('href', '/miniapp/wallet?service=paypal');
   await page.getByRole('button', { name: /Manage money/i }).click();
   await expect(page.getByText('Quick access')).toBeVisible();
-  await expect(page.getByRole('link', { name: /Business Tools/i }).first()).toHaveAttribute('href', '/miniapp/services/paypal/settings');
-  await expect(page.getByRole('link', { name: /Invoicing/i })).toHaveAttribute('href', '/miniapp/invoices?provider=paypal');
+  await expect(page.getByRole('link', { name: /Business Tools/i }).first()).toHaveAttribute('href', '/miniapp/services/paypal/overview');
+  await expect(page.getByRole('link', { name: /Invoicing/i })).toHaveAttribute('href', '/miniapp/services/paypal/invoices');
   await expect(page.getByRole('link', { name: /Payment Links & Buttons/i })).toHaveAttribute(
     'href',
     '/miniapp/services/paypal/payment-links'
@@ -632,7 +659,9 @@ test('mini app service catalog routes tiles into native service detail screens',
   await page.getByLabel('Price').fill('25.50');
   await page.getByRole('button', { name: /Build It/i }).click();
   await expect(page.getByText('Payment link is ready')).toBeVisible();
-  await expect(page.getByText('transferly-paypal://usd/Premium%20service-25.50')).toBeVisible();
+  await expect(
+    page.getByRole('status').getByText('transferly-paypal://usd/Premium%20service-25.50')
+  ).toBeVisible();
   await expect(page.getByRole('link', { name: /Customize/i })).toHaveAttribute(
     'href',
     '/miniapp/services/paypal/mail?mode=custom-mail'
@@ -655,7 +684,10 @@ test('mini app service catalog routes tiles into native service detail screens',
     '/miniapp/services/paypal/mail?mode=deposit-mail'
   );
   await expect(page.getByRole('link', { name: /Mail History/i })).toHaveAttribute('href', '/miniapp/vault?service=paypal');
-  await expect(page.getByRole('link', { name: /API credentials/i })).toHaveAttribute('href', '/miniapp/ops?provider=paypal');
+  await expect(page.getByRole('link', { name: /API credentials/i })).toHaveAttribute(
+    'href',
+    '/miniapp/services/paypal/developer'
+  );
   await expect(page.getByRole('link', { name: /Back to Transferly/i })).toHaveAttribute('href', '/miniapp');
   await expect(page.getByText('Copyright © 1999-2026 PayPal. All rights reserved.')).toBeVisible();
 });
@@ -663,7 +695,7 @@ test('mini app service catalog routes tiles into native service detail screens',
 test('mini app PayPal sandbox operations complete payment workflows', async ({ page }) => {
   await primeMiniAppUi(page);
   await mockTransferlyApi(page);
-  await page.goto('/miniapp/services/paypal');
+  await page.goto('/miniapp/services/paypal/payment-links');
 
   await expect(page.getByRole('heading', { name: 'Payments, invoices, payouts, and tracking' })).toBeVisible();
   await expect(page.getByText('Sandbox / test money only')).toBeVisible();
@@ -744,7 +776,18 @@ test('mini app route audit stays nonblank and responsive across core screens', a
     '/miniapp',
     '/miniapp/services',
     '/miniapp/services/paypal',
+    '/miniapp/services/paypal/overview',
+    '/miniapp/services/paypal/invoices',
+    '/miniapp/services/paypal/payouts',
     '/miniapp/services/paypal/activity',
+    '/miniapp/services/paypal/developer',
+    '/miniapp/services/stripe/overview',
+    '/miniapp/services/stripe/payments',
+    '/miniapp/services/stripe/connect',
+    '/miniapp/services/wise/receive',
+    '/miniapp/services/paystack/collections',
+    '/miniapp/services/flutterwave/transfers',
+    '/miniapp/services/crypto/send',
     '/miniapp/services/paypal/payment-links',
     '/miniapp/services/paypal/mail?mode=custom-mail',
     '/miniapp/services/paypal/mail?mode=deposit-mail',
@@ -780,8 +823,10 @@ test('mini app route audit stays nonblank and responsive across core screens', a
       pageErrors.length = 0;
       await page.goto(route);
 
-      await expect(page.locator('main')).toBeVisible();
-      await expect.poll(async () => (await page.locator('main').innerText()).trim().length).toBeGreaterThan(80);
+      const main = page.locator('main').first();
+      await expect(main).toBeVisible();
+      await expect.poll(async () => (await main.innerText()).trim().length).toBeGreaterThan(80);
+      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
       await expectNoHorizontalOverflow(page);
       expect(pageErrors, `${route} at ${viewport.width}px`).toEqual([]);
     }
@@ -793,7 +838,7 @@ test.describe('mini app visual regression', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await primeMiniAppUi(page);
     await mockTransferlyApi(page);
-    await page.goto('/miniapp/services/paypal');
+    await page.goto('/miniapp/services/paypal/payment-links');
 
     await expect(page.getByRole('link', { name: 'PayPal home page' })).toBeVisible();
     await expect(page.getByText('Business Performance')).toBeVisible();
@@ -1099,7 +1144,7 @@ test('mini app points wallet creates a native top-up order', async ({ page }) =>
   await page.getByRole('button', { name: /Crypto Payment/i }).click();
   await page.getByRole('button', { name: /Create point order/i }).click();
 
-  await expect(page.getByText('Point order created')).toBeVisible();
+  await expect(page.getByRole('main').getByText('Point order created')).toBeVisible();
   const order = page.getByRole('article').filter({ hasText: 'order_miniapp_1001' });
   await expect(order).toBeVisible();
   await expect(order.getByText('250 pts')).toBeVisible();
@@ -1116,8 +1161,8 @@ test('mini app payout request requires readiness confirmation', async ({ page })
 
   await page.getByRole('button', { name: /Request payout/i }).click();
   const composer = page.locator('section').filter({ hasText: 'Submit for review' });
-  await composer.getByPlaceholder('Receiver email').fill('recipient@example.com');
-  await composer.getByPlaceholder('Amount').fill('125');
+  await composer.getByLabel('Receiver email').fill('recipient@example.com');
+  await composer.getByLabel('Amount').fill('125');
 
   const requestButton = composer.getByRole('button', { name: /^Request payout$/ });
   await expect(requestButton).toBeDisabled();
@@ -1143,33 +1188,49 @@ test('admin payments workspace loads and opens an invoice detail drawer', async 
   await expect(page.getByRole('heading', { name: 'INV-1001' })).toBeVisible();
 });
 
-test('legacy PayPal invoice launcher opens the mini app invoice center', async ({ page }) => {
+test('provider-first routes and legacy redirects land in provider workspaces', async ({ page }) => {
+  await primeMiniAppUi(page);
+  await mockTransferlyApi(page);
+
+  await page.goto('/miniapp/services/paypal');
+  await expect(page).toHaveURL(/\/miniapp\/services\/paypal\/overview$/);
+  await expectProviderWorkspace(page, 'PayPal');
+
+  await page.goto('/services/paypal?view=invoices&status=sent');
+  await expect(page).toHaveURL(/\/miniapp\/services\/paypal\/invoices\?status=sent$/);
+  await expect(page.getByRole('heading', { name: 'Invoice lane' })).toBeVisible({ timeout: 10000 });
+
+  await page.goto('/services/paypal?view=payouts');
+  await expect(page).toHaveURL(/\/miniapp\/services\/paypal\/payouts$/);
+  await expect(page.getByRole('heading', { name: 'Payout lane' })).toBeVisible({ timeout: 10000 });
+
+  await page.goto('/miniapp/invoices?provider=stripe&status=paid');
+  await expect(page).toHaveURL(/\/miniapp\/services\/stripe\/payments\?status=paid$/);
+  await expectProviderWorkspace(page, 'Stripe Connect');
+
+  await page.goto('/miniapp/payouts?provider=crypto');
+  await expect(page).toHaveURL(/\/miniapp\/services\/crypto\/send$/);
+  await expectProviderWorkspace(page, 'Crypto Commerce');
+});
+
+test('legacy PayPal invoice launcher opens the PayPal provider invoice lane', async ({ page }) => {
+  await primeMiniAppUi(page);
   await mockTransferlyApi(page);
   await page.goto('/services/paypal?view=invoices');
 
-  await expect(page).toHaveURL(/\/miniapp\/invoices\?provider=paypal/);
-  await expect(page.getByText('Invoice center', { exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Create, track, remind, and collect.' })).toBeVisible();
-  await page.getByRole('button', { name: 'New invoice' }).click();
-  await expect(page.getByRole('heading', { name: 'Create payable invoice' })).toBeVisible();
-  await expect(page.getByPlaceholder('Client email')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Create invoice' })).toBeVisible();
+  await expect(page).toHaveURL(/\/miniapp\/services\/paypal\/invoices/);
+  await expect(page.getByRole('heading', { name: 'Invoice lane' })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText('Available invoice actions')).toBeVisible();
+  await expect(page.getByText('INV-1001', { exact: true })).toBeVisible();
 });
 
-test('legacy PayPal payout launcher opens the mini app payout center', async ({ page }) => {
+test('legacy PayPal payout launcher opens the PayPal provider payout lane', async ({ page }) => {
+  await primeMiniAppUi(page);
   await mockTransferlyApi(page);
   await page.goto('/services/paypal?view=payouts');
 
-  await expect(page).toHaveURL(/\/miniapp\/payouts\?provider=paypal/);
-  await expect(page.getByText('Payout center', { exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Review funds before they leave.' })).toBeVisible();
-  await expect(page.getByLabel('Payout readiness')).toContainText('Review queue');
-
-  await page.getByRole('button', { name: 'Request payout' }).click();
-
-  const composer = page.locator('section').filter({ hasText: 'Submit for review' });
-  await composer.getByPlaceholder('Receiver email').fill('recipient@example.com');
-  await composer.getByPlaceholder('Amount').fill('125');
-  await composer.getByLabel(/I confirm this payout request is ready for review/i).check();
-  await expect(composer.getByRole('button', { name: /^Request payout$/ })).toBeEnabled();
+  await expect(page).toHaveURL(/\/miniapp\/services\/paypal\/payouts/);
+  await expect(page.getByRole('heading', { name: 'Payout lane' })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText('Available payout actions')).toBeVisible();
+  await expect(page.getByText('Review', { exact: true })).toBeVisible();
 });

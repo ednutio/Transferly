@@ -40,6 +40,7 @@ import MiniAppShell from '../components/MiniAppShell';
 import MiniAppPointsWallet from '../components/MiniAppPointsWallet';
 import MiniAppReceiptStudio from '../components/MiniAppReceiptStudio';
 import MiniAppReceiptVault from '../components/MiniAppReceiptVault';
+import ProviderWorkspaceFoundation from '../components/ProviderWorkspaceFoundation';
 import ServiceLogo from '../components/ServiceLogo';
 import {
   ActivitySection,
@@ -62,6 +63,11 @@ import {
   getServiceEstimatedCost,
   getServicePreview
 } from '../lib/servicesCatalog';
+import {
+  getProviderWorkspaceRoute,
+  isProviderLaneSupported,
+  isProviderManifestSlug
+} from '../lib/providerManifests';
 
 const sectionMeta = {
   home: {
@@ -70,19 +76,19 @@ const sectionMeta = {
   },
   services: {
     title: 'Services',
-    subtitle: 'Premium service catalog'
+    subtitle: 'Provider workspaces and service tools'
   },
   studio: {
     title: 'Receipt Studio',
     subtitle: 'Create polished receipts'
   },
   invoices: {
-    title: 'Invoice Center',
-    subtitle: 'Create, send, remind'
+    title: 'Invoice Overview',
+    subtitle: 'Cross-provider collection dashboard'
   },
   payouts: {
-    title: 'Payout Center',
-    subtitle: 'Approve and release funds'
+    title: 'Payout Overview',
+    subtitle: 'Cross-provider sending dashboard'
   },
   activity: {
     title: 'Activity Feed',
@@ -122,7 +128,7 @@ const sectionMeta = {
   },
   ops: {
     title: 'Provider Command',
-    subtitle: 'Provider readiness and health'
+    subtitle: 'Aggregate provider readiness and health'
   },
   support: {
     title: 'Support Desk',
@@ -137,6 +143,8 @@ const sectionMeta = {
     subtitle: 'Preferences and safety'
   }
 };
+
+const paypalLegacyServiceSubpages = new Set(['payment-links', 'mail', 'settings']);
 
 const startParamSections = {
   generate: 'studio',
@@ -171,6 +179,23 @@ const startParamSections = {
   ops: 'ops'
 };
 
+const providerCollectionLanePriority = ['invoices', 'payments', 'receive', 'collections'];
+const providerSendingLanePriority = ['payouts', 'send', 'transfers', 'connect'];
+
+// Global invoice/payout routes remain available as aggregate views, while
+// provider-scoped links move users into the matching provider workspace lane.
+function getPreferredProviderLane(slug, lanePriority) {
+  return lanePriority.find((laneId) => isProviderLaneSupported(slug, laneId)) || 'overview';
+}
+
+function buildProviderWorkspaceRedirect(search, target) {
+  const params = new URLSearchParams(search);
+  params.delete('provider');
+  const query = params.toString();
+
+  return `${target}${query ? `?${query}` : ''}`;
+}
+
 const DEFAULT_SCREEN_KEY = 'transferly_miniapp_default_screen';
 const TELEGRAM_BOT_URL = 'https://t.me/TransferlyBot';
 
@@ -178,8 +203,8 @@ const defaultScreenOptions = [
   { id: 'home', label: 'Command', to: '/miniapp', icon: Gauge },
   { id: 'services', label: 'Services', to: '/miniapp/services', icon: Sparkles },
   { id: 'studio', label: 'Studio', to: '/miniapp/studio', icon: Zap },
-  { id: 'invoices', label: 'Invoices', to: '/miniapp/invoices', icon: FileText },
-  { id: 'payouts', label: 'Payouts', to: '/miniapp/payouts', icon: Send },
+  { id: 'paypal', label: 'PayPal', to: '/miniapp/services/paypal/overview', icon: FileText },
+  { id: 'stripe', label: 'Stripe', to: '/miniapp/services/stripe/overview', icon: CreditCard },
   { id: 'analytics', label: 'Metrics', to: '/miniapp/analytics', icon: BarChart3 },
   { id: 'vault', label: 'Vault', to: '/miniapp/vault', icon: History },
   { id: 'orders', label: 'Orders', to: '/miniapp/orders', icon: CreditCard },
@@ -198,6 +223,7 @@ const miniAppServiceHighlights = dashboardPreviewSlugs
   .slice(0, 10);
 
 const miniAppServiceCategories = [
+  { title: 'Provider Workspaces', slugs: ['paypal', 'stripe', 'wise', 'paystack', 'flutterwave', 'crypto'] },
   { title: 'Premium Articles', slugs: ['articles'] },
   { title: 'Data Generator', slugs: ['faker-data'] },
   { title: 'Bank Slips', slugs: ['opay', 'kuda', 'palmpay'] },
@@ -208,7 +234,6 @@ const miniAppServiceCategories = [
   { title: 'Wallet Tracker', slugs: ['wallet-tracker'] },
   { title: 'QR Code Generator', slugs: ['qr-code'] },
   { title: 'Link Shortener', slugs: ['link-shortener'] },
-  { title: 'Payment Providers', slugs: ['stripe', 'paystack', 'flutterwave', 'crypto'] },
   { title: 'Scripts', slugs: ['investinnova'], action: 'View Purchases', featured: true }
 ];
 
@@ -229,12 +254,12 @@ const miniAppMailServiceSlugs = new Set([
 const paypalWalletQuickAccessItems = [
   {
     label: 'Business Tools',
-    to: '/miniapp/services/paypal/settings',
+    to: '/miniapp/services/paypal/overview',
     icon: Layers3
   },
   {
     label: 'Invoicing',
-    to: '/miniapp/invoices?provider=paypal',
+    to: '/miniapp/services/paypal/invoices',
     icon: Receipt
   },
   {
@@ -244,7 +269,7 @@ const paypalWalletQuickAccessItems = [
   },
   {
     label: 'Send money',
-    to: '/miniapp/payouts?provider=paypal',
+    to: '/miniapp/services/paypal/payouts',
     icon: Send
   },
   {
@@ -254,7 +279,7 @@ const paypalWalletQuickAccessItems = [
   },
   {
     label: 'PayPal Checkout',
-    to: '/miniapp/ops?provider=paypal',
+    to: '/miniapp/services/paypal/developer',
     icon: ShieldCheck
   },
   {
@@ -304,7 +329,7 @@ const paypalWalletMailTasks = [
   {
     label: 'Open PayPal provider workspace',
     body: 'Review PayPal provider health, webhook events, invoices, payouts, and recovery actions.',
-    to: '/miniapp/ops?provider=paypal',
+    to: '/miniapp/services/paypal/overview',
     icon: ShieldCheck,
     badge: 'Ops'
   }
@@ -325,21 +350,21 @@ const paypalWalletActivityRows = [
 ];
 
 const paypalWalletDeveloperTasks = [
-  { label: 'API credentials', to: '/miniapp/ops?provider=paypal', detail: 'Client status and setup checks' },
-  { label: 'Webhooks', to: '/miniapp/ops?provider=paypal', detail: 'Delivery health, replay, and dead-letter recovery' },
-  { label: 'Invoices', to: '/miniapp/invoices?provider=paypal', detail: 'Create, remind, and reconcile PayPal invoices' },
-  { label: 'Payouts', to: '/miniapp/payouts?provider=paypal', detail: 'Review and release payout requests' }
+  { label: 'API credentials', to: '/miniapp/services/paypal/developer', detail: 'Client status and setup checks' },
+  { label: 'Webhooks', to: '/miniapp/services/paypal/developer', detail: 'Delivery health, replay, and dead-letter recovery' },
+  { label: 'Invoices', to: '/miniapp/services/paypal/invoices', detail: 'Create, remind, and reconcile PayPal invoices' },
+  { label: 'Payouts', to: '/miniapp/services/paypal/payouts', detail: 'Review and release payout requests' }
 ];
 
 const paypalWalletMenuItems = [
-  { label: 'Home', to: '/miniapp/services/paypal', icon: Gauge },
+  { label: 'Home', to: '/miniapp/services/paypal/overview', icon: Gauge },
   { label: 'Activity', to: '/miniapp/services/paypal/activity', icon: Activity, hasPanel: true },
   { label: 'Sales', to: '/miniapp/services/paypal/activity', icon: BarChart3, hasPanel: true },
   { label: 'Finance', to: '/miniapp/wallet?service=paypal', icon: WalletCards, hasPanel: true },
   { label: 'Operations', to: '/miniapp/services/paypal/settings', icon: ShieldCheck, hasPanel: true },
   { label: 'Pay & Get Paid', to: '/miniapp/services/paypal/payment-links', icon: Send, hasPanel: true },
-  { label: 'Business Tools', to: '/miniapp/ops?provider=paypal', icon: Sparkles },
-  { label: 'Developer', to: '/miniapp/ops?provider=paypal', icon: ShieldCheck },
+  { label: 'Business Tools', to: '/miniapp/services/paypal/overview', icon: Sparkles },
+  { label: 'Developer', to: '/miniapp/services/paypal/developer', icon: ShieldCheck },
   { label: 'Profile', to: '/miniapp/profile', icon: UserRound },
   { label: 'Settings', to: '/miniapp/services/paypal/settings', icon: Settings },
   { label: 'Message Center (0)', to: '/miniapp/services/paypal/activity', icon: Bell },
@@ -359,25 +384,25 @@ const paypalWalletMenuPanels = {
     { label: 'Reports', to: '/miniapp/analytics?provider=paypal&view=sales' }
   ],
   Finance: [
-    { label: 'Balance', to: '/miniapp/services/paypal' },
+    { label: 'Balance', to: '/miniapp/services/paypal/overview' },
     { label: 'Banks and cards', to: '/miniapp/wallet?service=paypal' },
     { label: 'Currencies', to: '/miniapp/ops?provider=paypal' }
   ],
   Operations: [
     { label: 'Business setup', to: '/miniapp/services/paypal/settings' },
-    { label: 'Provider health', to: '/miniapp/ops?provider=paypal' },
+    { label: 'Provider health', to: '/miniapp/services/paypal/developer' },
     { label: 'Security checks', to: '/miniapp/security?provider=paypal' }
   ],
   'Pay & Get Paid': [
-    { label: 'Create an Invoice', to: '/miniapp/invoices?provider=paypal&action=create' },
+    { label: 'Create an Invoice', to: '/miniapp/services/paypal/invoices?action=create' },
     { label: 'Request Money', to: '/miniapp/services/paypal/mail?mode=custom-mail' },
     { label: 'PayPal.Me', to: '/miniapp/services/paypal/payment-links?type=paypal-me' },
     { label: 'QR Code', to: '/miniapp/services/paypal/payment-links?format=qr' },
     { label: 'Virtual Terminal', to: '/miniapp/ops?provider=paypal&tool=terminal' },
     { label: 'Payment Links and Buttons', to: '/miniapp/services/paypal/payment-links' },
     { label: 'Shopping Cart Buttons', to: '/miniapp/services/paypal/payment-links?type=cart' },
-    { label: 'Send Money', to: '/miniapp/payouts?provider=paypal' },
-    { label: 'Payouts', to: '/miniapp/payouts?provider=paypal' },
+    { label: 'Send Money', to: '/miniapp/services/paypal/payouts' },
+    { label: 'Payouts', to: '/miniapp/services/paypal/payouts' },
     { label: 'Payment links', to: '/miniapp/services/paypal/payment-links' },
     { label: 'Custom mail', to: '/miniapp/services/paypal/mail?mode=custom-mail' },
     { label: 'Deposit mail', to: '/miniapp/services/paypal/mail?mode=deposit-mail' }
@@ -386,10 +411,10 @@ const paypalWalletMenuPanels = {
 
 const paypalWalletCreateItems = [
   { label: 'P2P Request', to: '/miniapp/services/paypal/mail?mode=custom-mail', icon: UserRound },
-  { label: 'Invoice', to: '/miniapp/invoices?provider=paypal', icon: Receipt },
+  { label: 'Invoice', to: '/miniapp/services/paypal/invoices', icon: Receipt },
   { label: 'Payment Link or Button', to: '/miniapp/services/paypal/payment-links', icon: Copy },
   { label: 'QR Code', to: '/miniapp/services/paypal/payment-links?format=qr', icon: Smartphone },
-  { label: 'P2P Payment', to: '/miniapp/payouts?provider=paypal', icon: Send },
+  { label: 'P2P Payment', to: '/miniapp/services/paypal/payouts', icon: Send },
   { label: 'Transfer to Bank', to: '/miniapp/wallet?service=paypal', icon: CreditCard }
 ];
 
@@ -1032,14 +1057,14 @@ function ProviderDock() {
     <section className="rounded-[30px] bg-[var(--tg-section-bg-color)] p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--tg-hint-color)]">Provider cockpit</p>
-          <h3 className="mt-2 text-2xl font-black tracking-[-0.04em] text-[var(--tg-text-color)]">Live provider shortcuts</h3>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--tg-hint-color)]">Provider workspaces</p>
+          <h3 className="mt-2 text-2xl font-black tracking-[-0.04em] text-[var(--tg-text-color)]">Collect and send by provider</h3>
         </div>
         <Link
-          to="/miniapp/ops"
+          to="/miniapp/services"
           className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-[var(--tg-button-color)] px-4 py-3 text-xs font-black text-[var(--tg-button-text-color)] transition active:scale-95"
         >
-          Open
+          Browse
           <ArrowRight size={15} />
         </Link>
       </div>
@@ -1047,7 +1072,7 @@ function ProviderDock() {
         {providerHighlights.map((provider) => (
           <Link
             key={provider.slug}
-            to="/miniapp/ops"
+            to={getProviderWorkspaceRoute(provider.slug)}
             className="rounded-[24px] bg-[var(--tg-secondary-bg-color)] p-4 transition active:scale-[0.99]"
           >
             <div className="flex items-center justify-between gap-3">
@@ -1057,7 +1082,7 @@ function ProviderDock() {
               </span>
             </div>
             <h4 className="mt-4 truncate text-base font-black tracking-[-0.025em] text-[var(--tg-text-color)]">{provider.title}</h4>
-            <p className="mt-1 truncate text-xs font-bold text-[var(--tg-hint-color)]">{provider.category}</p>
+            <p className="mt-1 truncate text-xs font-bold text-[var(--tg-hint-color)]">Open workspace</p>
           </Link>
         ))}
       </div>
@@ -1117,12 +1142,20 @@ function getMiniAppServiceTarget(service) {
     return '/miniapp/services';
   }
 
+  if (isProviderManifestSlug(service.slug)) {
+    return getProviderWorkspaceRoute(service.slug);
+  }
+
   return `/miniapp/services/${service.slug}`;
 }
 
 function getMiniAppLaunchTarget(service) {
   if (!service || service.status === 'comingSoon') {
     return '/miniapp/services';
+  }
+
+  if (isProviderManifestSlug(service.slug)) {
+    return getProviderWorkspaceRoute(service.slug);
   }
 
   if (service.launchTo?.startsWith('/miniapp')) {
@@ -1139,7 +1172,7 @@ function getMiniAppLaunchTarget(service) {
   }
 
   if (service.launchTo?.startsWith('/services/')) {
-    return service.category === 'Payment Providers' ? `/miniapp/ops?provider=${service.slug}` : `/miniapp/services/${service.slug}`;
+    return `/miniapp/services/${service.slug}`;
   }
 
   return service.launchTo || `/miniapp/services/${service.slug}`;
@@ -1495,6 +1528,8 @@ function ServicesSection() {
           <ArrowRight size={18} className="shrink-0 text-[var(--tg-button-color)] transition group-hover:translate-x-0.5" />
         </Link>
       ) : null}
+
+      <ProviderDock />
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         {miniAppServiceCategories.map((category) => {
@@ -1919,7 +1954,7 @@ function MiniAppPayPalWalletServicePage({ service }) {
     <div className="min-h-screen bg-white text-[#0c0c0d]">
       <header className="sticky top-0 z-40 border-b border-[#d6d9dc] bg-white">
         <div className="mx-auto flex h-[76px] max-w-[1180px] items-center justify-between gap-4 px-4 sm:px-6">
-          <Link to="/miniapp/services/paypal" className="flex items-center gap-4 text-[#001c64]" aria-label="PayPal home page">
+          <Link to="/miniapp/services/paypal/overview" className="flex items-center gap-4 text-[#001c64]" aria-label="PayPal home page">
             <ServiceLogo service={service} size="md" />
             <span className="hidden h-7 w-px bg-[#d6d9dc] sm:block" aria-hidden="true" />
             <span className="text-[22px] font-bold text-[#2c2e2f]">Business Account</span>
@@ -2884,7 +2919,7 @@ function MiniAppPayPalWalletServicePage({ service }) {
                         Send sandbox invoice
                       </button>
                       <div className="mt-3 flex flex-wrap gap-3">
-                        <Link to="/miniapp/invoices?provider=paypal" className="text-sm font-bold text-[#0070e0] hover:underline">
+                        <Link to="/miniapp/services/paypal/invoices" className="text-sm font-bold text-[#0070e0] hover:underline">
                           Back to invoices
                         </Link>
                         <button type="button" className="text-sm font-bold text-[#0070e0] hover:underline">
@@ -4662,9 +4697,24 @@ function SessionHealthStrip({ telegram, telegramAuthState, loading, user, profil
 }
 
 export default function MiniAppPage() {
-  const { section = 'home', slug = '' } = useParams();
+  const {
+    section: routeSection = '',
+    slug = '',
+    lane = '',
+    '*': routeTail = ''
+  } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  // Provider workspace routes use a literal /miniapp/services prefix, so
+  // they do not receive the generic :section param from the shared page route.
+  const section = useMemo(() => {
+    if (routeSection) {
+      return routeSection;
+    }
+
+    const [root, pathSection] = location.pathname.split('/').filter(Boolean);
+    return root === 'miniapp' ? (pathSection || 'home') : 'home';
+  }, [location.pathname, routeSection]);
   const telegram = useTelegramMiniApp();
   const {
     config,
@@ -4682,8 +4732,18 @@ export default function MiniAppPage() {
     return params.get('service') || '';
   }, [location.search]);
   const activeServiceSlug = activeSection === 'services' ? (slug || queryService) : '';
+  const activeProviderLane = activeSection === 'services'
+    ? (lane || routeTail.split('/').filter(Boolean)[0] || '')
+    : '';
+  const isProviderLaneRoute = Boolean(
+    activeServiceSlug &&
+    activeProviderLane &&
+    isProviderManifestSlug(activeServiceSlug)
+  );
+  const isLegacyPayPalSubpage = activeServiceSlug === 'paypal' && paypalLegacyServiceSubpages.has(activeProviderLane);
+  const isProviderWorkspaceRoute = isProviderLaneRoute && !isLegacyPayPalSubpage;
   const activeService = activeServiceSlug ? getServiceBySlug(activeServiceSlug) : null;
-  const isPayPalWalletService = activeSection === 'services' && activeServiceSlug === 'paypal';
+  const isPayPalWalletService = activeSection === 'services' && activeServiceSlug === 'paypal' && !isProviderWorkspaceRoute;
   const meta = activeService
     ? { title: activeService.title, subtitle: 'Service details' }
     : sectionMeta[activeSection];
@@ -4701,64 +4761,31 @@ export default function MiniAppPage() {
     }
   }, [activeSection, navigate, telegram.startParam]);
 
-  const mainButton = useMemo(() => {
-    switch (activeSection) {
-      case 'services':
-        return { text: 'Open Studio', action: () => navigate('/miniapp/studio') };
-      case 'invoices':
-        return { text: 'Create Invoice', action: () => navigate('/miniapp/invoices') };
-      case 'payouts':
-        return { text: 'Request Payout', action: () => navigate('/miniapp/payouts') };
-      case 'activity':
-        return { text: 'Open Alerts', action: () => navigate('/miniapp/notifications') };
-      case 'analytics':
-        return { text: 'Open Activity', action: () => navigate('/miniapp/activity') };
-      case 'notifications':
-        return { text: 'Copy Support Context', action: () => navigate('/miniapp/support?from=notifications') };
-      case 'clients':
-        return { text: 'Create Invoice', action: () => navigate('/miniapp/invoices') };
-      case 'risk':
-        return { text: profile?.is_admin ? 'Open Admin Ops' : 'Request Access', action: () => navigate(profile?.is_admin ? '/admin' : '/miniapp/support?from=risk') };
-      case 'security':
-        return { text: 'Open Settings', action: () => navigate('/miniapp/settings?from=security') };
-      case 'vault':
-        return { text: 'Open Full History', action: () => navigate('/miniapp/vault') };
-      case 'orders':
-        return { text: 'Search Orders', action: () => navigate('/miniapp/orders') };
-      case 'wallet':
-        return { text: 'Create Point Order', action: () => navigate('/miniapp/wallet') };
-      case 'ops':
-        return { text: profile?.is_admin ? 'Open Admin Ops' : 'Request Access', action: () => navigate(profile?.is_admin ? '/admin' : '/miniapp/support') };
-      default:
-        return { text: 'Generate Receipt', action: () => navigate('/miniapp/studio') };
-    }
-  }, [activeSection, navigate, profile?.is_admin]);
-
   useEffect(() => {
-    if (['studio', 'vault', 'orders', 'wallet', 'support', 'profile', 'settings'].includes(activeSection)) {
-      return undefined;
+    const params = new URLSearchParams(location.search);
+    const provider = params.get('provider')?.toLowerCase();
+
+    if (
+      activeSection === 'services' &&
+      activeServiceSlug &&
+      isProviderManifestSlug(activeServiceSlug) &&
+      !activeProviderLane
+    ) {
+      navigate(`${getProviderWorkspaceRoute(activeServiceSlug)}${location.search}`, { replace: true });
+      return;
     }
 
-    const button = telegram.webApp?.MainButton;
-    if (!button) {
-      return undefined;
+    if (provider && isProviderManifestSlug(provider) && activeSection === 'invoices') {
+      const targetLane = getPreferredProviderLane(provider, providerCollectionLanePriority);
+      navigate(buildProviderWorkspaceRedirect(location.search, getProviderWorkspaceRoute(provider, targetLane)), { replace: true });
+      return;
     }
 
-    const handleClick = () => {
-      telegram.impact('medium');
-      mainButton.action();
-    };
-
-    button.setText?.(mainButton.text);
-    button.enable?.();
-    button.show?.();
-    button.onClick?.(handleClick);
-
-    return () => {
-      button.offClick?.(handleClick);
-      button.hide?.();
-    };
-  }, [activeSection, mainButton, telegram]);
+    if (provider && isProviderManifestSlug(provider) && activeSection === 'payouts') {
+      const targetLane = getPreferredProviderLane(provider, providerSendingLanePriority);
+      navigate(buildProviderWorkspaceRedirect(location.search, getProviderWorkspaceRoute(provider, targetLane)), { replace: true });
+    }
+  }, [activeProviderLane, activeSection, activeServiceSlug, location.search, navigate]);
 
   return (
     <MiniAppShell title={meta.title} subtitle={meta.subtitle} immersive={isPayPalWalletService}>
@@ -4777,7 +4804,9 @@ export default function MiniAppPage() {
       ) : null}
       {activeSection === 'services' ? (
         activeServiceSlug
-          ? <MiniAppServiceDetail slug={activeServiceSlug} profile={profile} config={config} />
+          ? isProviderWorkspaceRoute
+            ? <ProviderWorkspaceFoundation slug={activeServiceSlug} lane={activeProviderLane} />
+            : <MiniAppServiceDetail slug={activeServiceSlug} profile={profile} config={config} />
           : <ServicesSection />
       ) : null}
       {activeSection === 'studio' ? <MiniAppReceiptStudio /> : null}

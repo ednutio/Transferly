@@ -17,10 +17,10 @@ export function PremiumButton({
   ...props
 }) {
   const variants = {
-    primary: 'bg-orange-500 hover:bg-orange-600 text-white',
-    secondary: 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-900 dark:text-white',
-    outline: 'border-2 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-900 dark:text-white',
-    ghost: 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 dark:text-white',
+    primary: 'bg-[var(--tg-button-color)] text-[var(--tg-button-text-color)] hover:brightness-110',
+    secondary: 'bg-[var(--tg-secondary-bg-color)] text-[var(--tg-text-color)] hover:brightness-110',
+    outline: 'border-2 border-[var(--miniapp-border-color)] text-[var(--tg-text-color)] hover:bg-[var(--miniapp-nav-hover-bg)]',
+    ghost: 'text-[var(--tg-text-color)] hover:bg-[var(--miniapp-nav-hover-bg)]',
   };
 
   const sizes = {

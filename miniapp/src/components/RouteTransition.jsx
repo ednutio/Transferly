@@ -27,7 +27,7 @@ const routeOrder = [
 ];
 
 const routeAccents = {
-  home: '#f8812d',
+  home: '#2aabee',
   services: '#0ea5e9',
   studio: '#a855f7',
   invoices: '#22c55e',
@@ -40,13 +40,13 @@ const routeAccents = {
   security: '#10b981',
   vault: '#8b5cf6',
   orders: '#3b82f6',
-  wallet: '#f8812d',
+  wallet: '#229ed9',
   ops: '#64748b',
   support: '#229ed9',
   profile: '#ec4899',
   settings: '#94a3b8',
   admin: '#111827',
-  content: '#f8812d'
+  content: '#2aabee'
 };
 
 const orderMap = routeOrder.reduce((memo, route, index) => {

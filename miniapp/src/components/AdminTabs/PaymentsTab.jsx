@@ -161,8 +161,8 @@ export default function AdminPaymentsTab({ mode = 'all', embedded = false, provi
   const showInvoices = mode === 'all' || mode === 'invoice';
   const showPayouts = mode === 'all' || mode === 'payout';
   const showPaymentIssues = true;
-  const isPayPalInvoiceWorkspace = embedded && mode === 'invoice';
-  const isPayPalPayoutWorkspace = embedded && mode === 'payout';
+  const isPayPalInvoiceWorkspace = embedded && mode === 'invoice' && (!providerFilter || providerFilter === 'paypal');
+  const isPayPalPayoutWorkspace = embedded && mode === 'payout' && (!providerFilter || providerFilter === 'paypal');
   const isStripePayoutWorkspace = embedded && mode === 'payout' && providerFilter === 'stripe';
   const isPayPalEmbeddedWorkspace = isPayPalInvoiceWorkspace || isPayPalPayoutWorkspace;
 

@@ -1,0 +1,302 @@
+import React from 'react';
+import { Link } from 'react-router-dom';
+import {
+  AlertCircle,
+  ArrowLeft,
+  BookOpen,
+  CheckCircle2,
+  ExternalLink,
+  Loader2,
+  RefreshCw
+} from 'lucide-react';
+import { getProviderWorkspaceRoute } from '../lib/providerManifests';
+
+const statusTone = {
+  live: 'text-emerald-200 border-emerald-400/30 bg-emerald-400/10',
+  healthy: 'text-emerald-200 border-emerald-400/30 bg-emerald-400/10',
+  connected: 'text-emerald-200 border-emerald-400/30 bg-emerald-400/10',
+  setup: 'text-sky-100 border-sky-400/30 bg-sky-400/10',
+  pending: 'text-sky-100 border-sky-400/30 bg-sky-400/10',
+  degraded: 'text-amber-100 border-amber-400/30 bg-amber-400/10',
+  error: 'text-red-100 border-red-400/30 bg-red-400/10',
+  disabled: 'text-[var(--tg-hint-color)] border-white/10 bg-white/5'
+};
+
+const workspaceStateCopy = {
+  loading: {
+    icon: Loader2,
+    title: 'Loading provider workspace',
+    detail: 'Preparing the latest Transferly provider context.',
+    spin: true
+  },
+  empty: {
+    icon: CheckCircle2,
+    title: 'No provider records yet',
+    detail: 'This workspace is ready for lane-specific provider data in the next migration phase.'
+  },
+  setup: {
+    icon: CheckCircle2,
+    title: 'Provider setup required',
+    detail: 'This lane is scaffolded in Transferly and will become active after the provider adapter, secrets, webhooks, and persistence are connected.'
+  },
+  preview: {
+    icon: CheckCircle2,
+    title: 'Preview lane',
+    detail: 'This lane is available for workspace planning while some provider operations are still being completed.'
+  },
+  unavailable: {
+    icon: AlertCircle,
+    title: 'Provider lane unavailable',
+    detail: 'Transferly has not enabled this provider lane yet.'
+  },
+  planned: {
+    icon: CheckCircle2,
+    title: 'Provider lane planned',
+    detail: 'This workspace lane is reserved for a future provider rollout.'
+  }
+};
+
+function normalizeStatus(status) {
+  return String(status || '').trim().toLowerCase();
+}
+
+function Badge({ children, tone = 'default' }) {
+  const toneClass = statusTone[tone] || 'text-[var(--tg-subtitle-text-color)] border-white/10 bg-white/5';
+
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.12em] ${toneClass}`}>
+      {children}
+    </span>
+  );
+}
+
+function ProviderLogo({ manifest }) {
+  return (
+    <div
+      className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-[18px] border shadow-[0_18px_48px_rgba(0,0,0,0.24)]"
+      style={{
+        borderColor: 'var(--provider-accent-border)',
+        background: 'linear-gradient(135deg, var(--provider-accent), color-mix(in srgb, var(--provider-accent) 52%, #1d4ed8))'
+      }}
+      aria-hidden="true"
+    >
+      {manifest.logoAsset ? (
+        <img src={manifest.logoAsset} alt="" className="h-8 w-8 object-contain" />
+      ) : (
+        <span className="text-sm font-black text-white">{manifest.iconLabel || manifest.displayName?.slice(0, 2)}</span>
+      )}
+    </div>
+  );
+}
+
+function WorkspaceState({ state, error, onRetry, children }) {
+  if (state === 'error') {
+    return (
+      <div className="rounded-[24px] border border-[var(--tg-destructive-text-color)]/30 bg-[var(--tg-destructive-text-color)]/10 p-5">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="mt-0.5 shrink-0 text-[var(--tg-destructive-text-color)]" size={20} />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-black text-[var(--tg-text-color)]">Provider workspace unavailable</p>
+            <p className="mt-1 text-xs font-bold leading-5 text-[var(--tg-subtitle-text-color)]">
+              {error || 'Transferly could not prepare this provider workspace.'}
+            </p>
+          </div>
+        </div>
+        {onRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-4 inline-flex min-h-[42px] items-center gap-2 rounded-2xl bg-[var(--tg-button-color)] px-4 text-sm font-black text-[var(--tg-button-text-color)]"
+          >
+            <RefreshCw size={16} />
+            Retry
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  const stateCopy = workspaceStateCopy[state];
+  if (stateCopy) {
+    const Icon = stateCopy.icon;
+
+    return (
+      <div className="rounded-[24px] border border-white/10 bg-white/[0.045] p-5 text-center">
+        <Icon className={`mx-auto text-[var(--tg-button-color)] ${stateCopy.spin ? 'animate-spin' : ''}`} size={22} />
+        <p className="mt-3 text-sm font-black text-[var(--tg-text-color)]">{stateCopy.title}</p>
+        <p className="mt-1 text-xs font-bold leading-5 text-[var(--tg-subtitle-text-color)]">{stateCopy.detail}</p>
+      </div>
+    );
+  }
+
+  return children;
+}
+
+// Transferly owns the page chrome; provider identity stays secondary metadata
+// rather than a cloned provider dashboard.
+export default function ProviderWorkspaceShell({
+  manifest,
+  activeLane = 'overview',
+  lanes = [],
+  environment = '',
+  connectionStatus = '',
+  capabilities = [],
+  quickActions = [],
+  state = 'ready',
+  error = '',
+  onRetry,
+  children
+}) {
+  if (!manifest) {
+    return null;
+  }
+
+  const status = normalizeStatus(connectionStatus || manifest.status);
+  const environmentLabel = Array.isArray(environment) ? environment.join(' + ') : environment;
+
+  return (
+    <div
+      className="space-y-4"
+      style={{
+        '--provider-accent': manifest.theme?.accentColor || 'var(--tg-button-color)',
+        '--provider-accent-soft': manifest.theme?.accentSoft || 'rgba(96,165,250,0.14)',
+        '--provider-accent-border': manifest.theme?.accentBorder || 'rgba(96,165,250,0.28)'
+      }}
+    >
+      <section className="overflow-hidden rounded-[28px] border border-white/10 bg-[linear-gradient(150deg,rgba(255,255,255,0.075),rgba(255,255,255,0.03))] p-4 shadow-[0_22px_70px_rgba(0,0,0,0.24)]">
+        <Link
+          to="/miniapp/services"
+          className="inline-flex min-h-[38px] items-center gap-2 rounded-full border border-white/10 bg-white/[0.045] px-3 text-xs font-black uppercase tracking-[0.12em] text-[var(--tg-subtitle-text-color)]"
+        >
+          <ArrowLeft size={14} />
+          Services
+        </Link>
+
+        <div className="mt-5 flex items-start gap-4">
+          <ProviderLogo manifest={manifest} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--tg-hint-color)]">
+              Transferly provider workspace
+            </p>
+            <h1 className="mt-1 text-2xl font-black leading-tight text-[var(--tg-text-color)]">{manifest.displayName}</h1>
+            <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-[var(--tg-subtitle-text-color)]">
+              {manifest.shortDescription}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          {environmentLabel ? <Badge tone="setup">{environmentLabel}</Badge> : null}
+          {status ? <Badge tone={status}>{connectionStatus || manifest.status}</Badge> : null}
+          {manifest.launcherStatusLabel ? <Badge>{manifest.launcherStatusLabel}</Badge> : null}
+        </div>
+
+        {capabilities.length ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {capabilities.map((capability) => (
+              <span
+                key={capability}
+                className="rounded-full border border-[var(--provider-accent-border)] bg-[var(--provider-accent-soft)] px-3 py-1.5 text-xs font-extrabold text-[var(--tg-text-color)]"
+              >
+                {capability}
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        {(manifest.docsUrl || manifest.supportUrl) ? (
+          <div className="mt-5 flex flex-wrap gap-2">
+            {manifest.docsUrl ? (
+              <a
+                href={manifest.docsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.045] px-3 text-xs font-black text-[var(--tg-text-color)]"
+              >
+                <BookOpen size={15} />
+                Docs
+                <ExternalLink size={13} />
+              </a>
+            ) : null}
+            {manifest.supportUrl ? (
+              <a
+                href={manifest.supportUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.045] px-3 text-xs font-black text-[var(--tg-text-color)]"
+              >
+                Help
+                <ExternalLink size={13} />
+              </a>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
+      {lanes.length ? (
+        <nav className="flex gap-2 overflow-x-auto rounded-[24px] border border-white/10 bg-[var(--tg-secondary-bg-color)] p-2" aria-label={`${manifest.displayName} lanes`}>
+          {lanes.map((lane) => {
+            const isActive = lane.id === activeLane;
+
+            return (
+              <Link
+                key={lane.id}
+                to={getProviderWorkspaceRoute(manifest.slug, lane.id)}
+                className={`min-h-[42px] shrink-0 rounded-2xl px-4 py-2 text-center text-xs font-black transition ${
+                  isActive
+                    ? 'bg-[var(--provider-accent-soft)] text-[var(--tg-text-color)] ring-1 ring-[var(--provider-accent-border)]'
+                    : 'text-[var(--tg-subtitle-text-color)] hover:bg-white/[0.045] hover:text-[var(--tg-text-color)]'
+                }`}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                <span className="block sm:hidden">{lane.shortLabel || lane.label}</span>
+                <span className="hidden sm:block">{lane.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      ) : null}
+
+      {quickActions.length ? (
+        <section className="grid gap-2 sm:grid-cols-3">
+          {quickActions.map((action) => {
+            const content = (
+              <>
+                <span className="min-w-0 flex-1">{action.label}</span>
+                {action.external ? <ExternalLink size={14} /> : null}
+              </>
+            );
+
+            if (action.external) {
+              return (
+                <a
+                  key={action.label}
+                  href={action.to}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex min-h-[46px] items-center gap-2 rounded-[18px] border border-white/10 bg-white/[0.045] px-4 text-sm font-black text-[var(--tg-text-color)]"
+                >
+                  {content}
+                </a>
+              );
+            }
+
+            return (
+              <Link
+                key={action.label}
+                to={action.to}
+                className="inline-flex min-h-[46px] items-center gap-2 rounded-[18px] border border-white/10 bg-white/[0.045] px-4 text-sm font-black text-[var(--tg-text-color)]"
+              >
+                {content}
+              </Link>
+            );
+          })}
+        </section>
+      ) : null}
+
+      <WorkspaceState state={state} error={error} onRetry={onRetry}>
+        {children}
+      </WorkspaceState>
+    </div>
+  );
+}
