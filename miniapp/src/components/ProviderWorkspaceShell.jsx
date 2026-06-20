@@ -71,6 +71,9 @@ function Badge({ children, tone = 'default' }) {
 }
 
 function ProviderLogo({ manifest }) {
+  const [logoFailed, setLogoFailed] = React.useState(false);
+  const shouldRenderLogo = Boolean(manifest.logoAsset && !logoFailed);
+
   return (
     <div
       className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-[18px] border shadow-[0_18px_48px_rgba(0,0,0,0.24)]"
@@ -80,12 +83,101 @@ function ProviderLogo({ manifest }) {
       }}
       aria-hidden="true"
     >
-      {manifest.logoAsset ? (
-        <img src={manifest.logoAsset} alt="" className="h-8 w-8 object-contain" />
+      {shouldRenderLogo ? (
+        <img
+          src={manifest.logoAsset}
+          alt=""
+          className="h-8 w-8 object-contain"
+          onError={() => setLogoFailed(true)}
+        />
       ) : (
         <span className="text-sm font-black text-white">{manifest.iconLabel || manifest.displayName?.slice(0, 2)}</span>
       )}
     </div>
+  );
+}
+
+function getBrandResources(brand = {}) {
+  return [
+    brand.assetSourceUrl
+      ? {
+          label: brand.assetSourceLabel || 'Brand assets',
+          href: brand.assetSourceUrl
+        }
+      : null,
+    brand.guidelinesUrl
+      ? {
+          label: brand.guidelinesLabel || 'Brand guidelines',
+          href: brand.guidelinesUrl
+        }
+      : null,
+    brand.buttonGuideUrl
+      ? {
+          label: brand.buttonGuideLabel || 'Button guide',
+          href: brand.buttonGuideUrl
+        }
+      : null
+  ].filter(Boolean);
+}
+
+function ProviderBrandPanel({ manifest }) {
+  const brand = manifest.brand;
+
+  if (!brand) {
+    return null;
+  }
+
+  const resources = getBrandResources(brand);
+  const principles = Array.isArray(brand.layoutPrinciples) ? brand.layoutPrinciples : [];
+
+  return (
+    <section
+      className="rounded-[24px] border border-[var(--provider-accent-border)] bg-[linear-gradient(150deg,var(--provider-accent-soft),rgba(255,255,255,0.035))] p-4"
+      aria-label={`${manifest.displayName} brand resources`}
+    >
+      <div className="flex items-start gap-3">
+        <ProviderLogo manifest={manifest} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--tg-hint-color)]">
+            Provider branding
+          </p>
+          <h2 className="mt-1 text-base font-black text-[var(--tg-text-color)]">{brand.label}</h2>
+          {brand.summary ? (
+            <p className="mt-2 text-xs font-semibold leading-5 text-[var(--tg-subtitle-text-color)]">{brand.summary}</p>
+          ) : null}
+        </div>
+      </div>
+
+      {principles.length ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {principles.map((principle) => (
+            <span
+              key={principle}
+              className="rounded-full border border-white/10 bg-white/[0.045] px-3 py-1.5 text-[11px] font-extrabold text-[var(--tg-text-color)]"
+            >
+              {principle}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {resources.length ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {resources.map((resource) => (
+            <a
+              key={resource.href}
+              href={resource.href}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex min-h-[40px] items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.055] px-3 text-xs font-black text-[var(--tg-text-color)]"
+            >
+              {resource.label}
+              <ExternalLink size={13} />
+            </a>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -232,6 +324,8 @@ export default function ProviderWorkspaceShell({
           </div>
         ) : null}
       </section>
+
+      <ProviderBrandPanel manifest={manifest} />
 
       {lanes.length ? (
         <nav className="flex gap-2 overflow-x-auto rounded-[24px] border border-white/10 bg-[var(--tg-secondary-bg-color)] p-2" aria-label={`${manifest.displayName} lanes`}>

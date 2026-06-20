@@ -16,6 +16,9 @@ const {
   buildStartKeyboard,
   buildMainMenuKeyboard,
   buildProvidersKeyboard,
+  buildInvoiceCenterKeyboard,
+  buildPayoutCenterKeyboard,
+  buildOpsCommandCenterKeyboard,
   buildBackKeyboard,
   buildUsersKeyboard,
   buildUsersListKeyboard,
@@ -50,7 +53,7 @@ const { handleServiceCallback } = require("../callbacks/services");
 const { handlePaymentCallback } = require("../callbacks/payments");
 const { handleUserCallback } = require("../callbacks/users");
 const { searchServices, getServiceLane } = require("../utils/serviceCatalog");
-const { ROLES, STATUS, CAPABILITIES, hasCapability, getActionCapability } = require("../utils/capabilities");
+const { ROLES, STATUS, CAPABILITIES, hasCapability, getActionCapability, getCommandCapability } = require("../utils/capabilities");
 const { initialSessionState } = require("../utils/sessionState");
 
 function ctx() {
@@ -212,6 +215,57 @@ test("provider cockpit exposes provider lanes and admin operations", () => {
   assert.ok(stripeWorkspaceLabels.includes("⚠️ Issues"));
 });
 
+test("invoice and payout command centers mirror provider workspace actions", () => {
+  const admin = { role: ROLES.ADMIN, status: STATUS.ACTIVE, isAuthorized: true, isAdmin: true };
+  const invoiceKeyboard = buildInvoiceCenterKeyboard(ctx(), admin);
+  const invoiceLabels = labels(invoiceKeyboard);
+  assert.ok(invoiceLabels.includes("PayPal Invoices"));
+  assert.ok(invoiceLabels.includes("Stripe Invoices"));
+  assert.ok(invoiceLabels.includes("Crypto Receive"));
+  assert.ok(invoiceLabels.includes("📄 Open Invoices"));
+  assert.ok(invoiceLabels.includes("💳 Provider Dashboard"));
+  assert.ok(callbackActions(invoiceKeyboard).includes("PP:INV"));
+  assert.ok(callbackActions(invoiceKeyboard).includes("PROVIDER_INV:stripe"));
+  assert.ok(callbackActions(invoiceKeyboard).includes("PROVIDER_INV:crypto"));
+  assert.ok(callbackActions(invoiceKeyboard).includes("PROVIDERS"));
+
+  const payoutKeyboard = buildPayoutCenterKeyboard(ctx(), admin);
+  const payoutLabels = labels(payoutKeyboard);
+  assert.ok(payoutLabels.includes("PayPal Payouts"));
+  assert.ok(payoutLabels.includes("Stripe Payouts"));
+  assert.ok(payoutLabels.includes("Wise Send"));
+  assert.ok(payoutLabels.includes("Flutterwave Transfers"));
+  assert.ok(payoutLabels.includes("Crypto Send"));
+  assert.ok(payoutLabels.includes("💸 Open Payouts"));
+  assert.ok(payoutLabels.includes("💳 Provider Dashboard"));
+  assert.ok(callbackActions(payoutKeyboard).includes("PP:PO"));
+  assert.ok(callbackActions(payoutKeyboard).includes("PROVIDER_PO:stripe"));
+  assert.ok(callbackActions(payoutKeyboard).includes("PROVIDER:wise"));
+  assert.ok(callbackActions(payoutKeyboard).includes("PROVIDERS"));
+});
+
+test("operations command center mirrors Mini App and admin recovery actions", () => {
+  const keyboard = buildOpsCommandCenterKeyboard(ctx());
+  const opsLabels = labels(keyboard);
+  assert.ok(opsLabels.includes("📊 Activity"));
+  assert.ok(opsLabels.includes("👥 Clients"));
+  assert.ok(opsLabels.includes("⚠️ Issues"));
+  assert.ok(opsLabels.includes("🛡️ Risk"));
+  assert.ok(opsLabels.includes("🔐 Security"));
+  assert.ok(opsLabels.includes("🧺 Orders"));
+  assert.ok(opsLabels.includes("🔄 Reconcile"));
+  assert.ok(opsLabels.includes("🧾 Payment Audit"));
+  assert.ok(opsLabels.includes("📊 Bot Analytics"));
+  assert.ok(opsLabels.includes("🤖 Bot Ops"));
+  assert.ok(opsLabels.includes("🔍 Status"));
+  assert.ok(opsLabels.includes("💳 Provider Dashboard"));
+  assert.ok(opsLabels.includes("🚀 Open Dashboard"));
+  assert.ok(opsLabels.includes("🧾 Open Studio"));
+  assert.ok(callbackActions(keyboard).includes("ACTIVITY"));
+  assert.ok(callbackActions(keyboard).includes("PAYMENT_AUDIT"));
+  assert.ok(callbackActions(keyboard).includes("PROVIDERS"));
+});
+
 test("provider record keyboards return to their originating provider workspace", () => {
   const fakeCtx = ctx();
   const stripeInvoice = {
@@ -250,6 +304,9 @@ test("capabilities allow authorized users to use services but block payment ops"
   assert.equal(getActionCapability("SERVICE_ACTION:opay:wallet-record"), CAPABILITIES.SERVICES_USE);
   assert.equal(getActionCapability("SERVICE_LANE:opay:wallet-record"), CAPABILITIES.SERVICES_USE);
   assert.equal(getActionCapability("PROVIDERS"), CAPABILITIES.SERVICES_USE);
+  assert.equal(getCommandCapability("stripe"), CAPABILITIES.SERVICES_USE);
+  assert.equal(getCommandCapability("paypal"), CAPABILITIES.SERVICES_USE);
+  assert.equal(getCommandCapability("invoices"), CAPABILITIES.PAYMENTS_READ);
   assert.equal(getActionCapability("ACTIVITY"), CAPABILITIES.PAYMENTS_READ);
   assert.equal(getActionCapability("SECURITY"), CAPABILITIES.SYSTEM_STATUS);
   assert.equal(getActionCapability("PP:INV"), CAPABILITIES.PAYMENTS_READ);
@@ -322,6 +379,9 @@ test("all generated inline callback actions have router coverage", async () => {
     ...callbackActions(buildMainMenuKeyboard(ctx(), { role: ROLES.OWNER, status: STATUS.ACTIVE, isAuthorized: true, isAdmin: true, isOwner: true })),
     ...callbackActions(buildMainMenuKeyboard(ctx(), { role: ROLES.USER, status: STATUS.ACTIVE, isAuthorized: true })),
     ...callbackActions(buildProvidersKeyboard(ctx(), { role: ROLES.OWNER, status: STATUS.ACTIVE, isAuthorized: true, isAdmin: true, isOwner: true })),
+    ...callbackActions(buildInvoiceCenterKeyboard(ctx(), { role: ROLES.OWNER, status: STATUS.ACTIVE, isAuthorized: true, isAdmin: true, isOwner: true })),
+    ...callbackActions(buildPayoutCenterKeyboard(ctx(), { role: ROLES.OWNER, status: STATUS.ACTIVE, isAuthorized: true, isAdmin: true, isOwner: true })),
+    ...callbackActions(buildOpsCommandCenterKeyboard(ctx())),
     ...callbackActions(buildServiceGroupsKeyboard(ctx())),
     ...callbackActions(buildServiceSearchResultsKeyboard(ctx(), [service])),
     ...callbackActions(buildServiceDetailKeyboard(ctx(), walletService)),
@@ -413,6 +473,9 @@ test("stale callback recovery opens the closest fresh workspace", () => {
   const owner = { role: ROLES.OWNER, status: STATUS.ACTIVE, isAuthorized: true, isAdmin: true, isOwner: true };
   assert.ok(labels(buildCallbackRecoveryKeyboard(ctx(), "USER_D:123", owner)).includes("📋 List Users"));
   assert.ok(labels(buildCallbackRecoveryKeyboard(ctx(), "PP:INV_D:inv_1", owner)).includes("📄 Official Invoices"));
+  assert.ok(labels(buildCallbackRecoveryKeyboard(ctx(), "INVOICES", owner)).includes("PayPal Invoices"));
+  assert.ok(labels(buildCallbackRecoveryKeyboard(ctx(), "OPS", owner)).includes("🧾 Payment Audit"));
+  assert.ok(labels(buildCallbackRecoveryKeyboard(ctx(), "PAYMENT_AUDIT", owner)).includes("💳 Provider Dashboard"));
   assert.ok(labels(buildCallbackRecoveryKeyboard(ctx(), "SERVICE:paypal", owner)).includes("Verified Wallets"));
 });
 

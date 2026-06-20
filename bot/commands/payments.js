@@ -1,6 +1,9 @@
 function registerPaymentCommands(bot, { wrap, handlers }) {
   bot.command("providers", wrap(handlers.handleProviders, "providers"));
-  bot.command("provider", wrap(handlers.handleProviders, "provider"));
+  bot.command("provider", wrap(handlers.handleProviderCommand || handlers.handleProviders, "provider"));
+  ["paypal", "stripe", "wise", "paystack", "flutterwave", "crypto"].forEach((provider) => {
+    bot.command(provider, wrap((ctx) => handlers.handleProviderShortcut(ctx, provider), provider));
+  });
   bot.command("invoices", wrap(handlers.handleInvoices, "invoices"));
   bot.command("payouts", wrap(handlers.handlePayouts, "payouts"));
   bot.command("activity", wrap(handlers.handleActivity, "activity"));

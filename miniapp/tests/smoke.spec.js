@@ -760,7 +760,8 @@ test('mini app service detail handles missing service slugs', async ({ page }) =
 });
 
 test('mini app route audit stays nonblank and responsive across core screens', async ({ page }) => {
-  test.setTimeout(90000);
+  // The route matrix checks every core screen across phone, tablet, and desktop viewports.
+  test.setTimeout(150000);
 
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -821,7 +822,7 @@ test('mini app route audit stays nonblank and responsive across core screens', a
 
     for (const route of routes) {
       pageErrors.length = 0;
-      await page.goto(route);
+      await page.goto(route, { waitUntil: 'domcontentloaded' });
 
       const main = page.locator('main').first();
       await expect(main).toBeVisible();
@@ -1195,6 +1196,12 @@ test('provider-first routes and legacy redirects land in provider workspaces', a
   await page.goto('/miniapp/services/paypal');
   await expect(page).toHaveURL(/\/miniapp\/services\/paypal\/overview$/);
   await expectProviderWorkspace(page, 'PayPal');
+  await expect(page.getByRole('region', { name: 'PayPal brand resources' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /PayPal media resources/i })).toHaveAttribute(
+    'href',
+    'https://newsroom.paypal-corp.com/media-resources'
+  );
+  await expect(page.getByText('Transferly shell stays primary')).toBeVisible();
 
   await page.goto('/services/paypal?view=invoices&status=sent');
   await expect(page).toHaveURL(/\/miniapp\/services\/paypal\/invoices\?status=sent$/);

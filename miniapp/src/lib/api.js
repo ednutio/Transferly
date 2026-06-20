@@ -2,9 +2,12 @@ import { getRawTelegramInitData, getTelegramStartParam } from './telegramMiniApp
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const API_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_API_REQUEST_TIMEOUT_MS || 15000);
+const API_SAFE_RETRY_ATTEMPTS = Number(import.meta.env.VITE_API_SAFE_RETRY_ATTEMPTS || 1);
 const TOKEN_STORAGE_KEY = 'transferly_api_token';
 const ADMIN_TOKEN_STORAGE_KEY = 'transferly_admin_api_token';
 const LEGACY_TOKEN_STORAGE_KEY = 'slipcraft_api_token';
+const SAFE_RETRY_METHODS = new Set(['GET', 'HEAD']);
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 function buildUrl(path) {
   if (!path.startsWith('/')) {
@@ -38,6 +41,43 @@ async function parseJsonSafely(response) {
   } catch (_error) {
     return null;
   }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function getRequestMethod(options = {}) {
+  return String(options.method || 'GET').toUpperCase();
+}
+
+function getRetryDelay(attempt, response) {
+  const retryAfter = response?.headers?.get('retry-after');
+
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds)) {
+      return Math.min(Math.max(seconds * 1000, 250), 2500);
+    }
+
+    const retryAt = Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) {
+      return Math.min(Math.max(retryAt - Date.now(), 250), 2500);
+    }
+  }
+
+  return Math.min(300 * 2 ** attempt, 1800);
+}
+
+function createNetworkError(error, requestId) {
+  const requestError = new Error(
+    error.name === 'AbortError'
+      ? 'Request timed out. Please try again.'
+      : 'Unable to reach Transferly. Please check your connection.'
+  );
+  requestError.code = error.name === 'AbortError' ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR';
+  requestError.requestId = requestId;
+  return requestError;
 }
 
 export function getStoredToken() {
@@ -133,6 +173,7 @@ function createRequestSignal(parentSignal) {
 }
 
 export async function apiRequest(path, options = {}) {
+  const { retries, signal: parentSignal, ...fetchOptions } = options;
   const headers = new Headers(options.headers || {});
   headers.set('Accept', 'application/json');
   headers.set('X-Transferly-Client', 'telegram-miniapp');
@@ -162,24 +203,46 @@ export async function apiRequest(path, options = {}) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const requestSignal = createRequestSignal(options.signal);
+  const method = getRequestMethod(options);
+  const retryAttempts = Number.isFinite(Number(retries))
+    ? Math.max(0, Number(retries))
+    : (SAFE_RETRY_METHODS.has(method) ? API_SAFE_RETRY_ATTEMPTS : 0);
   const requestId = headers.get('X-Request-Id');
   let response;
 
-  try {
-    response = await fetch(buildUrl(path), {
-      ...options,
-      headers,
-      body,
-      signal: requestSignal.signal
-    });
-  } catch (error) {
-    const requestError = new Error(error.name === 'AbortError' ? 'Request timed out. Please try again.' : 'Unable to reach Transferly. Please check your connection.');
-    requestError.code = error.name === 'AbortError' ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR';
-    requestError.requestId = requestId;
-    throw requestError;
-  } finally {
+  for (let attempt = 0; attempt <= retryAttempts; attempt += 1) {
+    const requestSignal = createRequestSignal(parentSignal);
+
+    try {
+      response = await fetch(buildUrl(path), {
+        ...fetchOptions,
+        headers,
+        body,
+        signal: requestSignal.signal
+      });
+    } catch (error) {
+      requestSignal.cleanup();
+
+      if (attempt < retryAttempts && !parentSignal?.aborted && error.name !== 'AbortError') {
+        await sleep(getRetryDelay(attempt));
+        continue;
+      }
+
+      throw createNetworkError(error, requestId);
+    }
+
     requestSignal.cleanup();
+
+    if (
+      response.ok ||
+      !RETRYABLE_STATUS_CODES.has(response.status) ||
+      attempt >= retryAttempts ||
+      parentSignal?.aborted
+    ) {
+      break;
+    }
+
+    await sleep(getRetryDelay(attempt, response));
   }
 
   const payload = await parseJsonSafely(response);

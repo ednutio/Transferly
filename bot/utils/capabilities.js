@@ -62,7 +62,9 @@ function hasCapability(access = {}, capability = CAPABILITIES.PUBLIC) {
 function getCommandCapability(command) {
   const name = String(command || "").replace(/^\//, "").toLowerCase();
   if (["start", "menu", "miniapp", "help", "whoami", "cancel"].includes(name)) return CAPABILITIES.PUBLIC;
-  if (["services", "receipt", "providers", "provider"].includes(name)) return CAPABILITIES.SERVICES_USE;
+  if (["services", "receipt", "providers", "provider", "paypal", "stripe", "wise", "paystack", "flutterwave", "crypto"].includes(name)) {
+    return CAPABILITIES.SERVICES_USE;
+  }
   if (["profile", "balance", "receipts", "history", "referral"].includes(name)) return CAPABILITIES.ACCOUNT_READ;
   if (["health"].includes(name)) return CAPABILITIES.HEALTH_READ;
   if (["invoices", "payouts", "activity", "risk", "issues", "orders", "ops", "reconcile", "refresh_invoice", "refresh_payout"].includes(name)) {

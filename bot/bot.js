@@ -8,11 +8,15 @@ try {
   throw error;
 }
 
-const { Bot, InlineKeyboard, InputFile, session } = grammyPkg;
+const { Bot, InlineKeyboard, InputFile, session, webhookCallback } = grammyPkg;
 const axios = require("axios");
+const http = require("http");
 const net = require("net");
 const { randomUUID } = require("crypto");
 const httpClient = require("./utils/httpClient");
+const logger = require("./utils/logger");
+const { createRateLimiter } = require("./utils/rateLimit");
+const { buildApiUrl, createMutationIdempotencyKey } = require("./utils/apiContract");
 const config = require("./config");
 const { registerCommands } = require("./commands");
 const { registerCallbackRouter } = require("./callbacks");
@@ -70,6 +74,7 @@ const {
   readBotSession,
   writeBotSession,
   deleteBotSession,
+  cleanupExpiredBotSessions,
 } = require("./db/db");
 
 const apiOrigins = new Set();
@@ -84,6 +89,7 @@ attachHmacAuth(axios, {
 });
 
 const bot = new Bot(config.botToken);
+const updateRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 30 });
 
 const TELEGRAM_COMMANDS = [
   { command: "start", description: "Open the Transferly bot" },
@@ -114,6 +120,8 @@ const SCREEN_TYPES = Object.freeze({
   RESULT: "result",
 });
 const PAYMENT_PROVIDER_SLUGS = new Set(["paypal", "stripe", "wise", "paystack", "flutterwave", "crypto"]);
+const PROVIDER_COMMAND_SLUGS = Object.freeze(["paypal", "stripe", "wise", "paystack", "flutterwave", "crypto"]);
+const PROVIDER_COMMAND_HINT = PROVIDER_COMMAND_SLUGS.map((slug) => `/${slug}`).join(", ");
 const MINI_APP_SECTIONS = Object.freeze({
   home: "",
   dashboard: "",
@@ -616,6 +624,83 @@ function buildProvidersKeyboard(ctx, access = {}) {
   return keyboard;
 }
 
+function buildInvoiceCenterKeyboard(ctx, access = {}) {
+  const keyboard = new InlineKeyboard()
+    .text("PayPal Invoices", buildCallbackData(ctx, "PP:INV"))
+    .text("Stripe Invoices", buildCallbackData(ctx, "PROVIDER_INV:stripe"))
+    .row()
+    .text("Crypto Receive", buildCallbackData(ctx, "PROVIDER_INV:crypto"))
+    .text("All Providers", buildCallbackData(ctx, "PROVIDERS"));
+
+  if (access.isAdmin) {
+    keyboard
+      .row()
+      .text("📊 Activity", buildCallbackData(ctx, "ACTIVITY"))
+      .text("⚠️ Issues", buildCallbackData(ctx, "ISSUES"));
+  }
+
+  keyboard
+    .row()
+    .text("🧰 Service Catalog", buildCallbackData(ctx, "SERVICES"))
+    .text("🏠 Main Menu", buildCallbackData(ctx, "MENU"));
+  addMiniAppButton(keyboard, "📄 Open Invoices", "invoices");
+  addMiniAppButton(keyboard, "💳 Provider Dashboard", "ops");
+  return keyboard;
+}
+
+function buildPayoutCenterKeyboard(ctx, access = {}) {
+  const keyboard = new InlineKeyboard()
+    .text("PayPal Payouts", buildCallbackData(ctx, "PP:PO"))
+    .text("Stripe Payouts", buildCallbackData(ctx, "PROVIDER_PO:stripe"))
+    .row()
+    .text("Wise Send", buildCallbackData(ctx, "PROVIDER:wise"))
+    .text("Flutterwave Transfers", buildCallbackData(ctx, "PROVIDER:flutterwave"))
+    .row()
+    .text("Crypto Send", buildCallbackData(ctx, "PROVIDER:crypto"))
+    .text("All Providers", buildCallbackData(ctx, "PROVIDERS"));
+
+  if (access.isAdmin) {
+    keyboard
+      .row()
+      .text("📊 Activity", buildCallbackData(ctx, "ACTIVITY"))
+      .text("⚠️ Issues", buildCallbackData(ctx, "ISSUES"));
+  }
+
+  keyboard
+    .row()
+    .text("🧰 Service Catalog", buildCallbackData(ctx, "SERVICES"))
+    .text("🏠 Main Menu", buildCallbackData(ctx, "MENU"));
+  addMiniAppButton(keyboard, "💸 Open Payouts", "payouts");
+  addMiniAppButton(keyboard, "💳 Provider Dashboard", "ops");
+  return keyboard;
+}
+
+function buildOpsCommandCenterKeyboard(ctx) {
+  const keyboard = new InlineKeyboard()
+    .text("📊 Activity", buildCallbackData(ctx, "ACTIVITY"))
+    .text("👥 Clients", buildCallbackData(ctx, "CLIENTS"))
+    .row()
+    .text("⚠️ Issues", buildCallbackData(ctx, "ISSUES"))
+    .text("🛡️ Risk", buildCallbackData(ctx, "RISK"))
+    .row()
+    .text("🔐 Security", buildCallbackData(ctx, "SECURITY"))
+    .text("🔍 Status", buildCallbackData(ctx, "STATUS"))
+    .row()
+    .text("🧺 Orders", buildCallbackData(ctx, "ORDERS"))
+    .text("🔄 Reconcile", buildCallbackData(ctx, "RECONCILE"))
+    .row()
+    .text("🧾 Payment Audit", buildCallbackData(ctx, "PAYMENT_AUDIT"))
+    .text("📊 Bot Analytics", buildCallbackData(ctx, "BOT_ANALYTICS"))
+    .row()
+    .text("🤖 Bot Ops", buildCallbackData(ctx, "BOT_OPS"))
+    .text("💳 Provider Dashboard", buildCallbackData(ctx, "PROVIDERS"))
+    .row()
+    .text("🏠 Main Menu", buildCallbackData(ctx, "MENU"));
+  addMiniAppButton(keyboard, "🚀 Open Dashboard", "dashboard");
+  addMiniAppButton(keyboard, "🧾 Open Studio", "studio");
+  return keyboard;
+}
+
 function buildBackKeyboard(ctx) {
   return new InlineKeyboard()
     .text("⬅️ Back", buildCallbackData(ctx, "BACK"))
@@ -865,6 +950,15 @@ function formatServiceLaneActivityLines(activity = {}) {
 function providerTitleFromKey(providerKey) {
   if (!providerKey) return "PayPal";
   return getService(providerKey)?.title || providerKey;
+}
+
+function normalizeProviderSlug(value) {
+  const slug = String(value || "")
+    .trim()
+    .replace(/^@/, "")
+    .replace(/^\//, "")
+    .toLowerCase();
+  return PAYMENT_PROVIDER_SLUGS.has(slug) ? slug : "";
 }
 
 function recordProviderKey(record, fallback = "paypal") {
@@ -1323,17 +1417,33 @@ function buildCallbackRecoveryKeyboard(ctx, action, access = {}) {
   if (value.startsWith("USER_") || value.startsWith("USERS")) {
     return access.isOwner ? buildUsersKeyboard(ctx) : buildMainMenuKeyboard(ctx, access);
   }
+  if (value === "PROVIDERS") {
+    return buildProvidersKeyboard(ctx, access);
+  }
+  if (value === "INVOICES") {
+    return buildInvoiceCenterKeyboard(ctx, access);
+  }
+  if (value === "PAYOUTS") {
+    return buildPayoutCenterKeyboard(ctx, access);
+  }
+  if (value.startsWith("PP:")) {
+    return buildPayPalWorkspaceKeyboard(ctx, access);
+  }
   if (
-    value.startsWith("PP:") ||
-    value === "INVOICES" ||
-    value === "PAYOUTS" ||
-    value === "PROVIDERS" ||
+    value === "OPS" ||
     value === "ACTIVITY" ||
     value === "CLIENTS" ||
     value === "RISK" ||
-    value === "SECURITY"
+    value === "SECURITY" ||
+    value === "ISSUES" ||
+    value === "ORDERS" ||
+    value === "RECONCILE" ||
+    value === "STATUS" ||
+    value === "BOT_OPS" ||
+    value === "BOT_ANALYTICS" ||
+    value === "PAYMENT_AUDIT"
   ) {
-    return value === "PROVIDERS" ? buildProvidersKeyboard(ctx, access) : buildPayPalWorkspaceKeyboard(ctx, access);
+    return buildOpsCommandCenterKeyboard(ctx);
   }
   if (
     value.startsWith("GROUP:") ||
@@ -2693,28 +2803,21 @@ async function handleComposerAction(ctx, action) {
   }
 }
 
-function buildQuery(params = {}) {
-  const query = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value === undefined || value === null || value === "" || value === "ALL") {
-      return;
-    }
-    query.set(key, String(value));
-  });
-  const text = query.toString();
-  return text ? `?${text}` : "";
-}
-
 async function adminGet(path, params = {}) {
-  const response = await httpClient.get(null, `${config.apiUrl}${path}${buildQuery(params)}`, {
+  const response = await httpClient.get(null, buildApiUrl(config.apiUrl, path, params), {
     timeout: 12000,
   });
   return response.data;
 }
 
+function buildMutationIdempotencyKey(path, body = {}) {
+  return createMutationIdempotencyKey(path, body);
+}
+
 async function adminPost(path, body = {}, options = {}) {
-  const response = await httpClient.post(null, `${config.apiUrl}${path}`, body, {
+  const response = await httpClient.post(null, buildApiUrl(config.apiUrl, path), body, {
     timeout: 15000,
+    idempotencyKey: options.idempotencyKey || buildMutationIdempotencyKey(path, body),
     ...options,
   });
   return response.data;
@@ -2778,6 +2881,20 @@ function dataList(payload, ...keys) {
     if (Array.isArray(payload?.[key])) return payload[key];
   }
   return [];
+}
+
+function adminReadFallback(error) {
+  return {
+    data: [],
+    error: error?.userMessage || error?.message || "API request failed",
+  };
+}
+
+function unavailableSummary(sources) {
+  const failed = sources
+    .filter(([, payload]) => payload?.error)
+    .map(([label]) => label);
+  return failed.length ? `Some sections could not be loaded: ${failed.join(", ")}.` : null;
 }
 
 function formatProvider(provider = {}) {
@@ -3005,6 +3122,7 @@ async function handleHelp(ctx) {
     "• /menu — resets the current flow and returns to the main workspace menu.",
     "• /miniapp — opens Telegram Mini App launch buttons for Dashboard, Studio, Vault, Wallet, Providers, and Support.",
     "• /providers — opens the payment provider cockpit.",
+    `• /provider stripe — opens a specific provider workspace. Direct shortcuts: ${PROVIDER_COMMAND_HINT}.`,
     "• /services — opens the service catalog.",
     "• /help — shows this full guide.",
     "• /cancel — cancels the current prompt or typed flow.",
@@ -3030,6 +3148,7 @@ async function handleHelp(ctx) {
     "• /receipt bank {\"service\":\"opay\",\"amount\":\"25.00\"} — direct receipt generation shortcut.",
     "",
     "<b>💳 PayPal Workspace</b>",
+    "• /paypal — opens the PayPal provider workspace.",
     "• Services → Verified Notifications → PayPal → PayPal Workspace.",
     "• Notification — starts the PayPal receipt composer.",
     "• Official Invoices — admin invoice list with status filters, pages, detail cards, Refresh, Release, and Open PayPal Link.",
@@ -3486,6 +3605,18 @@ async function handleProviders(ctx) {
   await replyHtml(ctx, lines.join("\n"), buildProvidersKeyboard(ctx, access));
 }
 
+async function handleProviderCommand(ctx) {
+  const requestedSlug = normalizeProviderSlug(getArgs(ctx)[0]);
+  if (!requestedSlug) return handleProviders(ctx);
+  return handleProviderWorkspace(ctx, requestedSlug);
+}
+
+async function handleProviderShortcut(ctx, slug) {
+  const requestedSlug = normalizeProviderSlug(slug);
+  if (!requestedSlug) return handleProviders(ctx);
+  return handleProviderWorkspace(ctx, requestedSlug);
+}
+
 async function handleReceipt(ctx) {
   if (!(await requireCapability(ctx, CAPABILITIES.SERVICES_USE, "receipt generation"))) return;
   const args = getArgs(ctx);
@@ -3500,12 +3631,40 @@ async function handleReceipt(ctx) {
 
 async function handleInvoices(ctx) {
   if (!(await requireAdmin(ctx, "invoice operations"))) return;
+  const args = getArgs(ctx);
+  if (!args.length) {
+    rememberScreen(ctx, "INVOICE_CENTER");
+    const access = await getAdminStatus(ctx);
+    const lines = [
+      "<b>📄 Collection Command Center</b>",
+      "",
+      "Choose a provider workspace for invoice, collection, or receive-money operations. PayPal and Stripe use live operational lists where backend support exists; other providers open their Transferly provider workspace until collection lanes are connected.",
+      "",
+      `Direct shortcuts: /provider paypal, ${PROVIDER_COMMAND_HINT}.`,
+    ];
+    await replyHtml(ctx, lines.join("\n"), buildInvoiceCenterKeyboard(ctx, access));
+    return;
+  }
   const filters = getListArgs(ctx);
   await handlePayPalInvoices(ctx, { ...filters, page: 1 });
 }
 
 async function handlePayouts(ctx) {
   if (!(await requireAdmin(ctx, "payout operations"))) return;
+  const args = getArgs(ctx);
+  if (!args.length) {
+    rememberScreen(ctx, "PAYOUT_CENTER");
+    const access = await getAdminStatus(ctx);
+    const lines = [
+      "<b>💸 Sending Command Center</b>",
+      "",
+      "Choose a provider workspace for payout, transfer, or send-money operations. PayPal and Stripe use live operational lists where backend support exists; other providers open their Transferly provider workspace until sending lanes are connected.",
+      "",
+      `Direct shortcuts: /provider wise, ${PROVIDER_COMMAND_HINT}.`,
+    ];
+    await replyHtml(ctx, lines.join("\n"), buildPayoutCenterKeyboard(ctx, access));
+    return;
+  }
   const filters = getListArgs(ctx);
   await handlePayPalPayouts(ctx, { ...filters, page: 1 });
 }
@@ -3514,27 +3673,34 @@ async function handleActivity(ctx) {
   if (!(await requireAdmin(ctx, "payment activity"))) return;
   rememberScreen(ctx, "ACTIVITY");
   const [invoices, payouts, webhooks, issues] = await Promise.all([
-    adminGet("/api/admin/invoices", { pageSize: 1 }).catch(() => ({})),
-    adminGet("/api/admin/payouts", { pageSize: 1 }).catch(() => ({})),
-    adminGet("/api/admin/webhooks", { limit: 5 }).catch(() => ({ data: [] })),
-    adminGet("/api/admin/payment-issues", { status: "OPEN", limit: 5 }).catch(() => ({ data: [] })),
+    adminGet("/api/admin/invoices", { pageSize: 1 }).catch(adminReadFallback),
+    adminGet("/api/admin/payouts", { pageSize: 1 }).catch(adminReadFallback),
+    adminGet("/api/admin/webhooks", { limit: 5 }).catch(adminReadFallback),
+    adminGet("/api/admin/payment-issues", { status: "OPEN", limit: 5 }).catch(adminReadFallback),
   ]);
   const webhookItems = dataList(webhooks, "events", "items").slice(0, 5);
   const issueItems = dataList(issues, "issues", "items").slice(0, 3);
+  const unavailable = unavailableSummary([
+    ["invoices", invoices],
+    ["payouts", payouts],
+    ["webhooks", webhooks],
+    ["issues", issues],
+  ]);
   const lines = [
     "<b>📊 Transferly Activity</b>",
     "",
     line("Invoices", invoices.pagination?.total ?? 0),
     line("Payouts", payouts.pagination?.total ?? 0),
     line("Open issues", issueItems.length),
+    unavailable ? line("Unavailable", unavailable) : null,
     "",
     "<b>Recent Webhooks</b>",
     ...(webhookItems.length ? webhookItems.map(formatWebhookEvent) : ["No recent webhook events found."]),
-  ];
+  ].filter((item) => item !== null);
   if (issueItems.length) {
     lines.push("", "<b>Open Issues</b>", ...issueItems.map(formatIssue));
   }
-  await replyHtml(ctx, lines.join("\n"), buildScreenKeyboard(ctx, SCREEN_TYPES.DETAIL));
+  await replyHtml(ctx, lines.join("\n"), buildOpsCommandCenterKeyboard(ctx));
 }
 
 async function handleClients(ctx) {
@@ -3553,14 +3719,15 @@ async function handleClients(ctx) {
 async function handleRisk(ctx) {
   if (!(await requireAdmin(ctx, "risk review"))) return;
   rememberScreen(ctx, "RISK");
-  const payload = await adminGet("/api/admin/risk-flags", { limit: 10 }).catch(() => ({ data: [] }));
+  const payload = await adminGet("/api/admin/risk-flags", { limit: 10 }).catch(adminReadFallback);
   const flags = dataList(payload, "flags", "items").slice(0, 10);
   const lines = [
     "<b>🛡️ Risk Review</b>",
     "",
+    payload.error ? "Risk flags could not be loaded right now. Use Status or retry from the operations menu." : null,
     ...(flags.length ? flags.map(formatRiskFlag) : ["No active risk flags found."]),
-  ];
-  await replyHtml(ctx, lines.join("\n"), buildScreenKeyboard(ctx, SCREEN_TYPES.DETAIL));
+  ].filter(Boolean);
+  await replyHtml(ctx, lines.join("\n"), buildOpsCommandCenterKeyboard(ctx));
 }
 
 async function handleSecurity(ctx) {
@@ -3568,9 +3735,9 @@ async function handleSecurity(ctx) {
   rememberScreen(ctx, "SECURITY");
   const [health, queues, deadLetters, webhooks] = await Promise.all([
     httpClient.get(null, `${config.apiUrl}/health`, { timeout: 8000 }).then((response) => response.data).catch(() => ({ status: "unreachable" })),
-    adminGet("/api/admin/queues").catch(() => ({})),
-    adminGet("/api/admin/dead-letters", { limit: 5 }).catch(() => ({ data: [] })),
-    adminGet("/api/admin/webhooks", { limit: 3 }).catch(() => ({ data: [] })),
+    adminGet("/api/admin/queues").catch(adminReadFallback),
+    adminGet("/api/admin/dead-letters", { limit: 5 }).catch(adminReadFallback),
+    adminGet("/api/admin/webhooks", { limit: 3 }).catch(adminReadFallback),
   ]);
   const services = health.services || {};
   const deadLetterItems = dataList(deadLetters, "items").slice(0, 5);
@@ -3588,7 +3755,7 @@ async function handleSecurity(ctx) {
     "<b>Webhook Watch</b>",
     ...(webhookItems.length ? webhookItems.map(formatWebhookEvent) : ["No recent webhook events found."]),
   ].filter((item) => item !== null);
-  await replyHtml(ctx, lines.join("\n"), buildScreenKeyboard(ctx, SCREEN_TYPES.DETAIL));
+  await replyHtml(ctx, lines.join("\n"), buildOpsCommandCenterKeyboard(ctx));
 }
 
 async function handleIssues(ctx) {
@@ -3598,14 +3765,15 @@ async function handleIssues(ctx) {
   const payload = await adminGet("/api/admin/payment-issues", {
     status: status && status !== "ALL" ? status : undefined,
     limit: 10,
-  });
+  }).catch(adminReadFallback);
   const items = Array.isArray(payload.data) ? payload.data : [];
   const lines = [
     "<b>Payment Issues</b>",
     "",
+    payload.error ? "Payment issues could not be loaded right now. Use Status or retry from the operations menu." : null,
     ...(items.length ? items.map(formatIssue) : ["No payment issues found."]),
-  ];
-  await replyHtml(ctx, lines.join("\n"), buildScreenKeyboard(ctx, SCREEN_TYPES.DETAIL));
+  ].filter(Boolean);
+  await replyHtml(ctx, lines.join("\n"), buildOpsCommandCenterKeyboard(ctx));
 }
 
 async function handleOrders(ctx) {
@@ -3615,24 +3783,31 @@ async function handleOrders(ctx) {
   const payload = await adminGet("/api/admin/top-up-orders", {
     status: status && status !== "all" ? status : undefined,
     limit: 10,
-  });
+  }).catch(adminReadFallback);
   const items = Array.isArray(payload.data) ? payload.data : [];
   const lines = [
     "<b>Top-up Orders</b>",
     "",
+    payload.error ? "Top-up orders could not be loaded right now. Use Status or retry from the operations menu." : null,
     ...(items.length ? items.map(formatOrder) : ["No top-up orders found."]),
-  ];
-  await replyHtml(ctx, lines.join("\n"), buildScreenKeyboard(ctx, SCREEN_TYPES.DETAIL));
+  ].filter(Boolean);
+  await replyHtml(ctx, lines.join("\n"), buildOpsCommandCenterKeyboard(ctx));
 }
 
 async function handleOps(ctx) {
   if (!(await requireAdmin(ctx, "payment operations summary"))) return;
   rememberScreen(ctx, "OPS");
   const [invoices, payouts, issues, orders] = await Promise.all([
-    adminGet("/api/admin/invoices", { pageSize: 1 }),
-    adminGet("/api/admin/payouts", { pageSize: 1 }),
-    adminGet("/api/admin/payment-issues", { status: "OPEN", limit: 5 }),
-    adminGet("/api/admin/top-up-orders", { status: "awaiting_confirmation", limit: 5 }),
+    adminGet("/api/admin/invoices", { pageSize: 1 }).catch(adminReadFallback),
+    adminGet("/api/admin/payouts", { pageSize: 1 }).catch(adminReadFallback),
+    adminGet("/api/admin/payment-issues", { status: "OPEN", limit: 5 }).catch(adminReadFallback),
+    adminGet("/api/admin/top-up-orders", { status: "awaiting_confirmation", limit: 5 }).catch(adminReadFallback),
+  ]);
+  const unavailable = unavailableSummary([
+    ["invoices", invoices],
+    ["payouts", payouts],
+    ["issues", issues],
+    ["orders", orders],
   ]);
   const lines = [
     "<b>Transferly Payment Ops</b>",
@@ -3641,8 +3816,11 @@ async function handleOps(ctx) {
     line("Payouts", payouts.pagination?.total ?? 0),
     line("Open issues", Array.isArray(issues.data) ? issues.data.length : 0),
     line("Funding review", Array.isArray(orders.data) ? orders.data.length : 0),
-  ];
-  await replyHtml(ctx, lines.join("\n"), buildBackKeyboard(ctx));
+    unavailable ? line("Unavailable", unavailable) : null,
+    "",
+    "Use the controls below to inspect operations, recover failed flows, or open the Mini App dashboard.",
+  ].filter((item) => item !== null);
+  await replyHtml(ctx, lines.join("\n"), buildOpsCommandCenterKeyboard(ctx));
 }
 
 async function handleApprovePayout(ctx) {
@@ -3742,7 +3920,7 @@ async function handleReconcile(ctx) {
       line("Invoices", result.invoices_processed ?? result.invoice_count ?? "submitted"),
       line("Payouts", result.payouts_processed ?? result.payout_count ?? "submitted"),
     ].join("\n"),
-    buildBackKeyboard(ctx),
+    buildOpsCommandCenterKeyboard(ctx),
   );
 }
 
@@ -3774,10 +3952,10 @@ async function handleStatus(ctx) {
       status: "unreachable",
       error: error?.userMessage || error?.message || "Health check failed",
     })),
-    adminGet("/api/admin/invoices", { pageSize: 1 }).catch(() => ({})),
-    adminGet("/api/admin/payouts", { pageSize: 1 }).catch(() => ({})),
-    adminGet("/api/admin/payment-issues", { status: "OPEN", limit: 5 }).catch(() => ({ data: [] })),
-    adminGet("/api/admin/top-up-orders", { status: "awaiting_confirmation", limit: 5 }).catch(() => ({ data: [] })),
+    adminGet("/api/admin/invoices", { pageSize: 1 }).catch(adminReadFallback),
+    adminGet("/api/admin/payouts", { pageSize: 1 }).catch(adminReadFallback),
+    adminGet("/api/admin/payment-issues", { status: "OPEN", limit: 5 }).catch(adminReadFallback),
+    adminGet("/api/admin/top-up-orders", { status: "awaiting_confirmation", limit: 5 }).catch(adminReadFallback),
   ]);
 
   const services = health.services || {};
@@ -3797,7 +3975,7 @@ async function handleStatus(ctx) {
     "",
     line("Checked", new Date().toLocaleString()),
   ].filter((item) => item !== null);
-  await replyHtml(ctx, lines.join("\n"), buildBackKeyboard(ctx));
+  await replyHtml(ctx, lines.join("\n"), buildOpsCommandCenterKeyboard(ctx));
 }
 
 function parseRedisTarget() {
@@ -4017,13 +4195,17 @@ function recordPaymentAudit(ctx, entry = {}) {
 }
 
 function recordAnalytics(ctx, action, category = "bot", status = "ok", details = {}) {
+  const safeDetails = details && typeof details === "object" ? { ...details } : {};
+  const durationMs = Number.isFinite(Number(safeDetails.durationMs)) ? Number(safeDetails.durationMs) : null;
+  delete safeDetails.durationMs;
   recordBotAnalyticsEvent({
     telegramId: ctx.from?.id || null,
     username: ctx.from?.username || null,
     action,
     category,
     status,
-    details,
+    durationMs,
+    details: Object.keys(safeDetails).length ? safeDetails : null,
   }, () => {});
 }
 
@@ -4185,6 +4367,8 @@ async function handleBotAnalytics(ctx) {
   const stats = await getBotAnalyticsStatsAsync();
   const actionRows = stats.action_totals_24h || [];
   const categoryRows = stats.category_totals_24h || [];
+  const callbackRows = stats.callback_status_totals_24h || [];
+  const slowRows = stats.slow_actions_24h || [];
   await replyHtml(
     ctx,
     [
@@ -4195,12 +4379,23 @@ async function handleBotAnalytics(ctx) {
       line("Failed Actions", stats.failures_24h ?? 0),
       line("Payment Actions", stats.payment_actions_24h ?? 0),
       line("Denied Access", stats.access_denials_24h ?? 0),
+      line("Callback Failures", stats.callback_failures_24h ?? 0),
+      line("Recovered Menus", stats.callback_recoveries_24h ?? 0),
+      line("Unknown Actions", stats.unknown_actions_24h ?? 0),
       "",
       "<b>Top Actions</b>",
       ...(actionRows.length ? actionRows.map((row) => `• ${escapeHtml(row.action)} — ${escapeHtml(row.count)}`) : ["No tracked actions yet."]),
       "",
       "<b>Top Categories</b>",
       ...(categoryRows.length ? categoryRows.map((row) => `• ${escapeHtml(row.category)} — ${escapeHtml(row.count)}`) : ["No tracked categories yet."]),
+      "",
+      "<b>Callback Health</b>",
+      ...(callbackRows.length ? callbackRows.map((row) => `• ${escapeHtml(row.status || "unknown")} — ${escapeHtml(row.count)}`) : ["No callback events yet."]),
+      "",
+      "<b>Slow Actions</b>",
+      ...(slowRows.length
+        ? slowRows.map((row) => `• ${escapeHtml(row.action)} · ${escapeHtml(row.category)} — avg ${escapeHtml(row.avg_duration_ms || 0)}ms, max ${escapeHtml(row.max_duration_ms || 0)}ms`)
+        : ["No timed actions yet."]),
       "",
       line("Generated", stats.generated_at || new Date().toISOString()),
     ].join("\n"),
@@ -4275,7 +4470,7 @@ async function runSubscriptionAlertSweep() {
       await recordSubscriptionAlertAsync(user.telegram_id, user.alert_threshold, user.subscription_expires_at);
       sent += 1;
     } catch (error) {
-      console.warn("Subscription alert delivery failed", {
+      logger.warn("Subscription alert delivery failed", {
         telegramId: user.telegram_id,
         threshold: user.alert_threshold,
         message: error?.message || String(error),
@@ -4283,7 +4478,7 @@ async function runSubscriptionAlertSweep() {
     }
   }
   if (sent) {
-    console.log(`Transferly subscription alert sweep sent ${sent} alert(s).`);
+    logger.info("Transferly subscription alert sweep completed", { sent });
   }
 }
 
@@ -5001,10 +5196,17 @@ async function handleStoredNavigationAction(ctx, action) {
   if (action === "USERS_AUDIT") return handleUsersAudit(ctx);
   if (action === "USERS_EXPIRING") return handleExpiringUsers(ctx);
   if (action === "OPS") return handleOps(ctx);
+  if (action === "ACTIVITY") return handleActivity(ctx);
+  if (action === "CLIENTS") return handleClients(ctx);
+  if (action === "RISK") return handleRisk(ctx);
+  if (action === "SECURITY") return handleSecurity(ctx);
   if (action === "ISSUES") return handleIssues(ctx);
   if (action === "ORDERS") return handleOrders(ctx);
-  if (action === "INVOICES" || action === "PP:INV") return handlePayPalInvoices(ctx);
-  if (action === "PAYOUTS" || action === "PP:PO") return handlePayPalPayouts(ctx);
+  if (action === "RECONCILE") return handleReconcile(ctx);
+  if (action === "INVOICES") return handleInvoices(ctx);
+  if (action === "PP:INV") return handlePayPalInvoices(ctx);
+  if (action === "PAYOUTS") return handlePayouts(ctx);
+  if (action === "PP:PO") return handlePayPalPayouts(ctx);
   if (action === "PP:HOME") return handlePayPalWorkspace(ctx);
   if (action.startsWith("PROVIDER_INV:")) {
     return handlePayPalInvoices(ctx, { provider: action.slice("PROVIDER_INV:".length), page: 1 });
@@ -5071,6 +5273,9 @@ async function recoverCallback(ctx, validation = {}) {
   clearPendingPrompts(ctx);
   const access = await getAdminStatus(ctx);
   const action = validation.action || "";
+  recordAnalytics(ctx, action || "callback_recovery", "callback_recovery", validation.status || "recovered", {
+    reason: validation.reason || validation.status || "callback_recovery",
+  });
   const reason = validation.status === "stale"
     ? "That button belongs to an older bot session."
     : validation.status === "invalid"
@@ -5088,11 +5293,58 @@ async function recoverCallback(ctx, validation = {}) {
   );
 }
 
+function getUpdateRateKey(ctx, label) {
+  const userId = ctx.from?.id || ctx.chat?.id || "anonymous";
+  const command = ctx.message?.text?.startsWith("/")
+    ? ctx.message.text.split(/\s+/)[0].slice(1).toLowerCase()
+    : label;
+  return `${userId}:${command || label}`;
+}
+
+function getRateLimitOptions(ctx, label) {
+  if (label === "callback") {
+    return { windowMs: 30 * 1000, max: 24 };
+  }
+  if (ctx.message?.text?.startsWith("/")) {
+    return { windowMs: 60 * 1000, max: 18 };
+  }
+  return { windowMs: 60 * 1000, max: 30 };
+}
+
+async function enforceRateLimit(ctx, label) {
+  const result = updateRateLimiter.check(getUpdateRateKey(ctx, label), getRateLimitOptions(ctx, label));
+  if (result.allowed) return true;
+  const retryAfterSeconds = Math.max(1, Math.ceil(result.retryAfterMs / 1000));
+  recordBotAnalyticsEvent({
+    telegramId: ctx.from?.id || null,
+    username: ctx.from?.username || null,
+    action: label,
+    category: "rate_limit",
+    status: "blocked",
+    details: { retryAfterSeconds },
+  }, () => {});
+  if (ctx.callbackQuery) {
+    await ctx.answerCallbackQuery({
+      text: `Please try again in ${retryAfterSeconds}s.`,
+      show_alert: false,
+    }).catch(() => {});
+  }
+  await replyHtml(
+    ctx,
+    `Too many Transferly requests. Please try again in ${retryAfterSeconds}s.`,
+    buildBackKeyboard(ctx),
+  );
+  return false;
+}
+
 function wrap(handler, label) {
   return async (ctx) => {
     ensureSession(ctx);
     const start = Date.now();
     try {
+      if (!(await enforceRateLimit(ctx, label))) {
+        return;
+      }
       await clearTriggerMessage(ctx);
       if (ctx.message?.text?.startsWith("/")) {
         const command = ctx.message.text.split(/\s+/)[0].slice(1).toLowerCase();
@@ -5120,7 +5372,8 @@ function wrap(handler, label) {
         durationMs: Date.now() - start,
         details: { message: error?.message || String(error) },
       }, () => {});
-      console.error(`${label} failed`, {
+      logger.error(`${label} failed`, {
+        telegramId: ctx.from?.id || null,
         message: error?.message,
         status: error?.response?.status,
         requestId: error?.apiContext?.requestId,
@@ -5152,6 +5405,8 @@ registerCommands(bot, {
     handleMiniApp,
     handleServices,
     handleProviders,
+    handleProviderCommand,
+    handleProviderShortcut,
     handleHelp,
     handleWhoami,
     handleProfile,
@@ -5211,6 +5466,8 @@ registerCallbackRouter(bot, {
     handleMiniApp,
     handleServices,
     handleProviders,
+    handleInvoices,
+    handlePayouts,
     handleHelp,
     handleProfile,
     handleWhoami,
@@ -5301,7 +5558,7 @@ bot.on("message:text", wrap(async (ctx) => {
 }, "text"));
 
 bot.catch((error) => {
-  console.error("Bot update failed", {
+  logger.error("Bot update failed", {
     updateId: error.ctx?.update?.update_id,
     message: error.error?.message || String(error.error),
   });
@@ -5313,23 +5570,160 @@ async function validateApiConnectivity() {
   if (!response.data || (!response.data.ok && response.data.status && response.data.status !== "healthy")) {
     throw new Error(`Transferly API healthcheck returned an unexpected payload.`);
   }
-  console.log(`Transferly API reachable (${healthUrl})`);
+  logger.info("Transferly API reachable", { url: healthUrl });
+}
+
+let alertTimer = null;
+let sessionCleanupTimer = null;
+let webhookServer = null;
+
+function runSessionCleanup() {
+  cleanupExpiredBotSessions(336, function onCleanup(error) {
+    if (error) {
+      logger.warn("Bot session cleanup failed", { message: error.message });
+      return;
+    }
+    logger.debug("Bot session cleanup completed", { deleted: this?.changes || 0 });
+  });
+}
+
+function startBackgroundJobs() {
+  runSubscriptionAlertSweep().catch((error) => logger.warn("Initial subscription alert sweep failed", { error }));
+  alertTimer = setInterval(() => {
+    runSubscriptionAlertSweep().catch((error) => logger.warn("Subscription alert sweep failed", { error }));
+  }, 6 * 60 * 60 * 1000);
+  alertTimer.unref?.();
+
+  runSessionCleanup();
+  sessionCleanupTimer = setInterval(runSessionCleanup, 12 * 60 * 60 * 1000);
+  sessionCleanupTimer.unref?.();
+}
+
+function stopBackgroundJobs() {
+  if (alertTimer) {
+    clearInterval(alertTimer);
+    alertTimer = null;
+  }
+  if (sessionCleanupTimer) {
+    clearInterval(sessionCleanupTimer);
+    sessionCleanupTimer = null;
+  }
+}
+
+function registerPollingShutdownHandlers() {
+  let stopping = false;
+  const stop = async (signal) => {
+    if (stopping) return;
+    stopping = true;
+    logger.info("Transferly bot stopping", { signal, mode: "polling" });
+    stopBackgroundJobs();
+    try {
+      if (bot.isRunning()) {
+        await bot.stop();
+      }
+      process.exit(0);
+    } catch (error) {
+      logger.error("Transferly bot shutdown failed", { error });
+      process.exit(1);
+    }
+  };
+  process.once("SIGINT", () => stop("SIGINT"));
+  process.once("SIGTERM", () => stop("SIGTERM"));
+}
+
+function registerWebhookShutdownHandlers(server) {
+  let stopping = false;
+  const stop = (signal) => {
+    if (stopping) return;
+    stopping = true;
+    logger.info("Transferly webhook server stopping", { signal, mode: "webhook" });
+    stopBackgroundJobs();
+    server.close((error) => {
+      if (error) {
+        logger.error("Transferly webhook server shutdown failed", { error });
+        process.exit(1);
+        return;
+      }
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10000).unref?.();
+  };
+  process.once("SIGINT", () => stop("SIGINT"));
+  process.once("SIGTERM", () => stop("SIGTERM"));
+}
+
+async function startPollingRuntime() {
+  registerPollingShutdownHandlers();
+  logger.info("Transferly bot polling started");
+  await bot.start();
+}
+
+async function startWebhookRuntime() {
+  if (!config.updates.webhookUrl) {
+    throw new Error("BOT_WEBHOOK_URL is required when BOT_UPDATE_MODE=webhook.");
+  }
+
+  const webhookPath = config.updates.webhookPath.startsWith("/")
+    ? config.updates.webhookPath
+    : `/${config.updates.webhookPath}`;
+  const handleUpdate = webhookCallback(bot, "http", {
+    secretToken: config.updates.webhookSecret || undefined,
+    timeoutMilliseconds: 10000,
+  });
+
+  webhookServer = http.createServer(async (req, res) => {
+    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    if (req.method === "GET" && (url.pathname === "/health" || url.pathname === "/healthz")) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, service: "transferly-bot" }));
+      return;
+    }
+    if (req.method !== "POST" || url.pathname !== webhookPath) {
+      res.writeHead(404).end();
+      return;
+    }
+    try {
+      await handleUpdate(req, res);
+    } catch (error) {
+      logger.error("Telegram webhook update failed", { error });
+      if (!res.headersSent) {
+        res.writeHead(500).end();
+      } else {
+        res.end();
+      }
+    }
+  });
+
+  await new Promise((resolve, reject) => {
+    webhookServer.once("error", reject);
+    webhookServer.listen(config.updates.port, resolve);
+  });
+
+  const webhookOptions = config.updates.webhookSecret
+    ? { secret_token: config.updates.webhookSecret }
+    : {};
+  await bot.api.setWebhook(config.updates.webhookUrl, webhookOptions);
+  registerWebhookShutdownHandlers(webhookServer);
+  logger.info("Transferly bot webhook runtime started", {
+    port: config.updates.port,
+    path: webhookPath,
+    webhookUrl: config.updates.webhookUrl,
+  });
 }
 
 async function bootstrap() {
   try {
     await validateApiConnectivity();
     await bot.api.setMyCommands(TELEGRAM_COMMANDS);
-    console.log("Transferly bot commands registered");
-    runSubscriptionAlertSweep().catch((error) => console.warn("Initial subscription alert sweep failed", error?.message || error));
-    const alertTimer = setInterval(() => {
-      runSubscriptionAlertSweep().catch((error) => console.warn("Subscription alert sweep failed", error?.message || error));
-    }, 6 * 60 * 60 * 1000);
-    alertTimer.unref?.();
-    await bot.start();
-    console.log("Transferly bot is polling for updates");
+    logger.info("Transferly bot commands registered");
+    startBackgroundJobs();
+    if (config.updates.mode === "webhook") {
+      await startWebhookRuntime();
+      return;
+    }
+    await startPollingRuntime();
   } catch (error) {
-    console.error("Failed to start Transferly bot:", error?.message || error);
+    logger.error("Failed to start Transferly bot", { error });
     process.exit(1);
   }
 }
@@ -5345,6 +5739,9 @@ module.exports = {
   buildStartKeyboard,
   buildMainMenuKeyboard,
   buildProvidersKeyboard,
+  buildInvoiceCenterKeyboard,
+  buildPayoutCenterKeyboard,
+  buildOpsCommandCenterKeyboard,
   buildBackKeyboard,
   buildMiniAppUrl,
   buildUsersKeyboard,

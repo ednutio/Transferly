@@ -44,6 +44,26 @@ function optionalUrl(value, key) {
   }
 }
 
+function optionalInteger(value, fallback, key) {
+  const raw = String(value || '').trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    console.error(`❌ Invalid ${key}: ${raw}`);
+    process.exit(1);
+  }
+  return parsed;
+}
+
+function updateMode(value) {
+  const mode = String(value || 'polling').trim().toLowerCase();
+  if (!['polling', 'webhook'].includes(mode)) {
+    console.error(`❌ Invalid BOT_UPDATE_MODE: ${mode}. Use "polling" or "webhook".`);
+    process.exit(1);
+  }
+  return mode;
+}
+
 // Check for required environment variables
 
 module.exports = {
@@ -60,5 +80,12 @@ module.exports = {
   scriptsApiUrl: process.env.API_URL,
   apiAuth: {
     hmacSecret: apiHmacSecret,
+  },
+  updates: {
+    mode: updateMode(process.env.BOT_UPDATE_MODE),
+    webhookUrl: optionalUrl(process.env.BOT_WEBHOOK_URL, 'BOT_WEBHOOK_URL'),
+    webhookPath: process.env.BOT_WEBHOOK_PATH || '/telegram/webhook',
+    webhookSecret: process.env.BOT_WEBHOOK_SECRET || '',
+    port: optionalInteger(process.env.BOT_PORT || process.env.PORT, 8080, 'BOT_PORT'),
   },
 };

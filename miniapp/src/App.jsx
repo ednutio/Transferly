@@ -2,8 +2,10 @@ import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AppContextProvider } from './context/AppContext';
+import { MiniAppRuntimeProvider } from './context/MiniAppRuntimeContext';
 import { TelegramMiniAppProvider } from './context/TelegramMiniAppContext';
 import { AdminRoute } from './components/AdminRoute';
+import { MiniAppRuntimeGate } from './components/MiniAppRuntimeGate';
 import { MiniAppState } from './components/MiniAppState';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { RouteTransition } from './components/RouteTransition';
@@ -22,7 +24,11 @@ const MiniAppPage = lazy(() => import('./pages/MiniAppPage'));
 
 function RouteFallback() {
   return (
-    <MiniAppState tone="loading" />
+    <MiniAppState
+      tone="loading"
+      title="Loading Transferly workspace"
+      description="Preparing provider tools, wallet controls, activity history, and secure Telegram-ready navigation."
+    />
   );
 }
 
@@ -136,13 +142,15 @@ function AppFrame() {
 
   return (
     <RouteErrorBoundary resetKey={location.pathname}>
-      <RouteTransition>
-        {(transitionLocation) => (
-          <Suspense fallback={<RouteFallback />}>
-            <AppRoutes location={transitionLocation} />
-          </Suspense>
-        )}
-      </RouteTransition>
+      <MiniAppRuntimeGate>
+        <RouteTransition>
+          {(transitionLocation) => (
+            <Suspense fallback={<RouteFallback />}>
+              <AppRoutes location={transitionLocation} />
+            </Suspense>
+          )}
+        </RouteTransition>
+      </MiniAppRuntimeGate>
       <Toaster position="top-right" />
     </RouteErrorBoundary>
   );
@@ -152,9 +160,11 @@ function App() {
   return (
     <AppContextProvider>
       <TelegramMiniAppProvider>
-        <Router>
-          <AppFrame />
-        </Router>
+        <MiniAppRuntimeProvider>
+          <Router>
+            <AppFrame />
+          </Router>
+        </MiniAppRuntimeProvider>
       </TelegramMiniAppProvider>
     </AppContextProvider>
   );

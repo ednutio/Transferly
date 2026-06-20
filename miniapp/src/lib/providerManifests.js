@@ -207,6 +207,24 @@ const providerManifestSeeds = [
     shortDescription: 'Hosted invoices, official payouts, verified webhooks, and provider activity managed from Transferly.',
     logoAsset: '/brand-logos/paypal.png',
     iconLabel: 'PP',
+    brand: {
+      treatment: 'approved-secondary-provider-branding',
+      label: 'Approved PayPal resources',
+      summary:
+        'PayPal appears as a connected provider inside Transferly. Use approved assets and provider terminology while keeping Transferly as the primary product shell.',
+      assetSourceLabel: 'PayPal media resources',
+      assetSourceUrl: 'https://newsroom.paypal-corp.com/media-resources',
+      guidelinesLabel: 'PayPal developer policies',
+      guidelinesUrl: 'https://developer.paypal.com/reference/guidelines/policiesAndGuidelines/',
+      buttonGuideLabel: 'Button design guide',
+      buttonGuideUrl: 'https://developer.paypal.com/docs/log-in-with-paypal/customize/button-design-guide/',
+      layoutPrinciples: [
+        'Transferly shell stays primary',
+        'Provider branding stays secondary',
+        'Use approved logo assets only',
+        'Do not imitate PayPal dashboards'
+      ]
+    },
     theme: {
       accentColor: '#0070e0',
       accentSoft: 'rgba(0,112,224,0.14)',

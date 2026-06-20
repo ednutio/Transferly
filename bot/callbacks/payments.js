@@ -4,12 +4,22 @@ async function handlePaymentCallback(ctx, action, { requireAdmin, handlers }) {
     return true;
   }
 
-  if (action === "INVOICES" || action === "PP:INV") {
+  if (action === "INVOICES") {
+    await handlers.handleInvoices(ctx);
+    return true;
+  }
+
+  if (action === "PP:INV") {
     await handlers.handlePayPalInvoices(ctx);
     return true;
   }
 
-  if (action === "PAYOUTS" || action === "PP:PO") {
+  if (action === "PAYOUTS") {
+    await handlers.handlePayouts(ctx);
+    return true;
+  }
+
+  if (action === "PP:PO") {
     await handlers.handlePayPalPayouts(ctx);
     return true;
   }
