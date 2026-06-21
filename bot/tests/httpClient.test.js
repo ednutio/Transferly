@@ -9,6 +9,7 @@ process.env.ADMIN_API_TOKEN ||= "admin-token";
 
 const axios = require("axios");
 const httpClient = require("../utils/httpClient");
+const { contractShapes } = require("../utils/apiContract");
 
 function transientError(status = 500) {
   const error = new Error("Request failed with status code " + status);
@@ -91,4 +92,40 @@ test("GET requests retry transient API failures by default", async (t) => {
 
   assert.deepEqual(response.data, { ok: true });
   assert.equal(attempts, 3);
+});
+
+test("response contracts validate API payloads and stay out of axios options", async (t) => {
+  const originalGet = axios.get;
+  let capturedOptions = null;
+  t.after(() => {
+    axios.get = originalGet;
+  });
+
+  axios.get = async (_url, options) => {
+    capturedOptions = options;
+    return { data: { data: [], pagination: { page: 1, total: 0 } } };
+  };
+
+  const response = await httpClient.get(null, "http://localhost:3000/api/admin/invoices", {
+    contract: contractShapes.paginatedData,
+    requestId: "req-contract-ok",
+  });
+
+  assert.deepEqual(response.data.data, []);
+  assert.equal("contract" in capturedOptions, false);
+
+  axios.get = async () => ({ data: { pagination: {} } });
+
+  await assert.rejects(
+    () =>
+      httpClient.get(null, "http://localhost:3000/api/admin/invoices", {
+        contract: contractShapes.paginatedData,
+        requestId: "req-contract-bad",
+      }),
+    (error) => {
+      assert.equal(error.code, "API_CONTRACT_MISMATCH");
+      assert.match(error.userMessage, /bot contract/i);
+      return true;
+    },
+  );
 });

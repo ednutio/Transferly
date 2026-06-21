@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
+  Clock3,
   ExternalLink,
   Loader2,
   RefreshCw
@@ -17,7 +18,10 @@ const statusTone = {
   connected: 'text-emerald-200 border-emerald-400/30 bg-emerald-400/10',
   setup: 'text-sky-100 border-sky-400/30 bg-sky-400/10',
   pending: 'text-sky-100 border-sky-400/30 bg-sky-400/10',
+  retrying: 'text-sky-100 border-sky-400/30 bg-sky-400/10',
   degraded: 'text-amber-100 border-amber-400/30 bg-amber-400/10',
+  'rate-limited': 'text-amber-100 border-amber-400/30 bg-amber-400/10',
+  success: 'text-emerald-200 border-emerald-400/30 bg-emerald-400/10',
   error: 'text-red-100 border-red-400/30 bg-red-400/10',
   disabled: 'text-[var(--tg-hint-color)] border-white/10 bg-white/5'
 };
@@ -34,6 +38,11 @@ const workspaceStateCopy = {
     title: 'No provider records yet',
     detail: 'This workspace is ready for lane-specific provider data in the next migration phase.'
   },
+  success: {
+    icon: CheckCircle2,
+    title: 'Provider workspace updated',
+    detail: 'The latest Transferly provider context is ready.'
+  },
   setup: {
     icon: CheckCircle2,
     title: 'Provider setup required',
@@ -48,6 +57,22 @@ const workspaceStateCopy = {
     icon: AlertCircle,
     title: 'Provider lane unavailable',
     detail: 'Transferly has not enabled this provider lane yet.'
+  },
+  disabled: {
+    icon: AlertCircle,
+    title: 'Provider lane disabled',
+    detail: 'This lane is currently disabled by Transferly configuration or provider readiness checks.'
+  },
+  retrying: {
+    icon: Loader2,
+    title: 'Retrying provider workspace',
+    detail: 'Transferly is checking the latest provider state again.',
+    spin: true
+  },
+  'rate-limited': {
+    icon: Clock3,
+    title: 'Too many refreshes',
+    detail: 'Wait a moment, then retry the provider workspace request.'
   },
   planned: {
     icon: CheckCircle2,
@@ -184,7 +209,11 @@ function ProviderBrandPanel({ manifest }) {
 function WorkspaceState({ state, error, onRetry, children }) {
   if (state === 'error') {
     return (
-      <div className="rounded-[24px] border border-[var(--tg-destructive-text-color)]/30 bg-[var(--tg-destructive-text-color)]/10 p-5">
+      <div
+        role="alert"
+        aria-live="assertive"
+        className="rounded-[24px] border border-[var(--tg-destructive-text-color)]/30 bg-[var(--tg-destructive-text-color)]/10 p-5"
+      >
         <div className="flex items-start gap-3">
           <AlertCircle className="mt-0.5 shrink-0 text-[var(--tg-destructive-text-color)]" size={20} />
           <div className="min-w-0 flex-1">
@@ -198,6 +227,7 @@ function WorkspaceState({ state, error, onRetry, children }) {
           <button
             type="button"
             onClick={onRetry}
+            aria-label="Retry loading provider workspace"
             className="mt-4 inline-flex min-h-[42px] items-center gap-2 rounded-2xl bg-[var(--tg-button-color)] px-4 text-sm font-black text-[var(--tg-button-text-color)]"
           >
             <RefreshCw size={16} />
@@ -211,12 +241,29 @@ function WorkspaceState({ state, error, onRetry, children }) {
   const stateCopy = workspaceStateCopy[state];
   if (stateCopy) {
     const Icon = stateCopy.icon;
+    const canRetry = onRetry && ['disabled', 'rate-limited', 'unavailable'].includes(state);
 
     return (
-      <div className="rounded-[24px] border border-white/10 bg-white/[0.045] p-5 text-center">
+      <div
+        role={stateCopy.spin ? 'status' : 'note'}
+        aria-live={stateCopy.spin ? 'polite' : undefined}
+        aria-busy={stateCopy.spin ? 'true' : undefined}
+        className="rounded-[24px] border border-white/10 bg-white/[0.045] p-5 text-center"
+      >
         <Icon className={`mx-auto text-[var(--tg-button-color)] ${stateCopy.spin ? 'animate-spin' : ''}`} size={22} />
         <p className="mt-3 text-sm font-black text-[var(--tg-text-color)]">{stateCopy.title}</p>
         <p className="mt-1 text-xs font-bold leading-5 text-[var(--tg-subtitle-text-color)]">{stateCopy.detail}</p>
+        {canRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            aria-label="Retry provider workspace"
+            className="mt-4 inline-flex min-h-[42px] items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.065] px-4 text-sm font-black text-[var(--tg-text-color)]"
+          >
+            <RefreshCw size={16} />
+            Retry
+          </button>
+        ) : null}
       </div>
     );
   }
