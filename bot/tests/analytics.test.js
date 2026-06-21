@@ -35,6 +35,7 @@ test("bot analytics aggregates callback health and action duration", async () =>
   const suffix = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
   const callbackAction = `TEST_CALLBACK_${suffix}`;
   const recoveryAction = `TEST_RECOVERY_${suffix}`;
+  const slowDurationMs = 987654;
 
   await recordEvent({
     telegramId: 9001,
@@ -42,7 +43,7 @@ test("bot analytics aggregates callback health and action duration", async () =>
     action: callbackAction,
     category: "callback",
     status: "unknown",
-    durationMs: 87,
+    durationMs: slowDurationMs,
     details: { route: "test" },
   });
   await recordEvent({
@@ -62,5 +63,5 @@ test("bot analytics aggregates callback health and action duration", async () =>
   assert.ok(stats.callback_recoveries_24h >= 1);
   assert.ok(stats.unknown_actions_24h >= 1);
   assert.ok(statusTotals.some((row) => row.status === "unknown" && row.count >= 1));
-  assert.ok(slowActions.some((row) => row.action === callbackAction && row.avg_duration_ms >= 87));
+  assert.ok(slowActions.some((row) => row.action === callbackAction && row.avg_duration_ms >= slowDurationMs));
 });

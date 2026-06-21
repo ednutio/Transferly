@@ -3,8 +3,29 @@ const { handleServiceCallback } = require("./services");
 const { handlePaymentCallback } = require("./payments");
 const { handleUserCallback } = require("./users");
 
+function readProviderActionContext(action) {
+  const value = String(action || "");
+  const [verb, provider, lane] = value.split(":");
+
+  if (verb === "PROVIDER" && provider) return { provider };
+  if (verb === "PROVIDER_LANE" && provider) return { provider, lane: lane || undefined };
+  if (verb === "PROVIDER_INV" && provider) return { provider, lane: "invoices" };
+  if (verb === "PROVIDER_PO" && provider) return { provider, lane: "payouts" };
+  if (verb === "PROVIDER_BAL" && provider) return { provider, lane: "balance" };
+  if (verb === "PROVIDER_WEBHOOKS" && provider) return { provider, lane: "activity" };
+  if (verb === "PROVIDER_ISSUES" && provider) return { provider, lane: "issues" };
+  if (verb === "PROVIDER_CUSTOM" && provider) return { provider, lane: "custom-details" };
+  if (value.startsWith("PP:INV")) return { provider: "paypal", lane: "invoices" };
+  if (value.startsWith("PP:PO")) return { provider: "paypal", lane: "payouts" };
+
+  return {};
+}
+
 function recordCallbackAnalytics(deps, ctx, action, status = "ok", details = {}) {
-  deps.recordAnalytics?.(ctx, action || "callback", "callback", status, details);
+  deps.recordAnalytics?.(ctx, action || "callback", "callback", status, {
+    ...readProviderActionContext(action),
+    ...details,
+  });
 }
 
 async function routeCallback(route, handler, ctx, action, deps, startedAt) {
