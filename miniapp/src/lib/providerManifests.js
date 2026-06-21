@@ -1,4 +1,4 @@
-import { getPaymentProviderLauncher } from './paymentProviderLaunchers';
+import { getPaymentProviderLauncher } from './paymentProviderLaunchers.js';
 
 // Provider manifests are Transferly-owned workspace metadata. They keep provider
 // identity lightweight and secondary while routing each provider into shared lanes.

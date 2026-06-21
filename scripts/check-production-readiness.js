@@ -39,12 +39,28 @@ function ecosystemAppNames(relativePath) {
   return Array.isArray(ecosystem.apps) ? ecosystem.apps.map((app) => app.name).filter(Boolean) : [];
 }
 
+function loadProviderContract() {
+  const relativePath = 'shared/providerWorkspaceContract.js';
+  const absolutePath = path.join(rootDir, relativePath);
+  if (!fs.existsSync(absolutePath)) return null;
+  try {
+    // Static release checks load the shared CommonJS contract without contacting provider APIs.
+    // eslint-disable-next-line global-require, import/no-dynamic-require
+    return require(absolutePath);
+  } catch (error) {
+    return { error };
+  }
+}
+
 const rootPackage = readPackage('package.json');
 const apiPackage = readPackage('api/package.json');
 const botPackage = readPackage('bot/package.json');
 const miniappPackage = readPackage('miniapp/package.json');
 const apiApps = ecosystemAppNames('api/ecosystem.config.js');
 const botApps = ecosystemAppNames('bot/ecosystem.config.js');
+const providerContract = loadProviderContract();
+const providerWorkspaces = providerContract?.listProviderWorkspaces?.() || [];
+const expectedProviders = ['paypal', 'stripe', 'wise', 'paystack', 'flutterwave', 'crypto'];
 
 addCheck('api ecosystem config exists', fileExists('api/ecosystem.config.js'));
 addCheck('bot ecosystem config exists', fileExists('bot/ecosystem.config.js'));
@@ -88,6 +104,38 @@ addCheck('bot test script exists', hasScript(botPackage, 'test'));
 addCheck('workspace verify script exists', hasScript(rootPackage, 'verify'));
 addCheck('workspace production check script exists', hasScript(rootPackage, 'check:production'));
 addCheck('workspace release verification script exists', hasScript(rootPackage, 'verify:release'));
+addCheck('shared provider workspace contract exists', fileExists('shared/providerWorkspaceContract.js'));
+addCheck('bot provider workspace compatibility module exists', fileExists('bot/utils/providerWorkspaces.js'));
+addCheck('bot provider miniapp parity test exists', fileExists('bot/tests/providerMiniappParity.test.js'));
+addCheck('miniapp provider manifest exists', fileExists('miniapp/src/lib/providerManifests.js'));
+addCheck('miniapp provider workspace shell exists', fileExists('miniapp/src/components/ProviderWorkspaceShell.jsx'));
+addCheck('miniapp provider workspace foundation exists', fileExists('miniapp/src/components/ProviderWorkspaceFoundation.jsx'));
+addCheck(
+  'provider workspace contract loads',
+  Boolean(providerContract && !providerContract.error),
+  providerContract?.error?.message
+);
+addCheck(
+  'provider workspace contract includes expected providers',
+  expectedProviders.every((slug) => providerWorkspaces.some((workspace) => workspace.slug === slug)),
+  `Expected: ${expectedProviders.join(', ')}`
+);
+addCheck(
+  'provider workspace lanes define mini app routes',
+  providerWorkspaces.every((workspace) => (
+    Array.isArray(workspace.lanes) &&
+    workspace.lanes.every((lane) => String(lane.miniAppSection || '').startsWith(`services/${workspace.slug}/`))
+  )),
+  'Every provider lane should deep link into /miniapp/services/:slug/:lane'
+);
+addCheck(
+  'provider workspace live lanes expose an action or route',
+  providerWorkspaces.every((workspace) => (
+    Array.isArray(workspace.lanes) &&
+    workspace.lanes.every((lane) => lane.status !== 'live' || lane.botAction || lane.miniAppSection)
+  )),
+  'Live lanes should have a bot action, Mini App route, or both.'
+);
 
 if (process.env.NODE_ENV === 'production') {
   [

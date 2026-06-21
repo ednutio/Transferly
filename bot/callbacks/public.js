@@ -12,6 +12,13 @@ async function handlePublicCallback(ctx, action, { handlers }) {
     case "HELP":
       await handlers.handleHelp(ctx);
       return true;
+    case "MENU_COLLECT":
+    case "MENU_SEND":
+    case "MENU_ACCOUNT":
+    case "MENU_ADMIN":
+    case "MENU_SUPPORT":
+      await handlers.handleCommandSection(ctx, action);
+      return true;
     case "PROFILE":
       await handlers.handleProfile(ctx);
       return true;

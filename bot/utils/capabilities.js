@@ -65,7 +65,7 @@ function getCommandCapability(command) {
   if (["services", "receipt", "providers", "provider", "paypal", "stripe", "wise", "paystack", "flutterwave", "crypto"].includes(name)) {
     return CAPABILITIES.SERVICES_USE;
   }
-  if (["profile", "balance", "receipts", "history", "referral"].includes(name)) return CAPABILITIES.ACCOUNT_READ;
+  if (["account", "profile", "balance", "receipts", "history", "referral"].includes(name)) return CAPABILITIES.ACCOUNT_READ;
   if (["health"].includes(name)) return CAPABILITIES.HEALTH_READ;
   if (["invoices", "payouts", "activity", "risk", "issues", "orders", "ops", "reconcile", "refresh_invoice", "refresh_payout"].includes(name)) {
     return CAPABILITIES.PAYMENTS_READ;
@@ -80,7 +80,7 @@ function getCommandCapability(command) {
 
 function getActionCapability(action) {
   const value = String(action || "");
-  if (!value || ["BACK", "MENU", "HELP", "WHOAMI", "CANCEL"].includes(value)) return CAPABILITIES.PUBLIC;
+  if (!value || ["BACK", "MENU", "HELP", "WHOAMI", "CANCEL", "MENU_SUPPORT"].includes(value)) return CAPABILITIES.PUBLIC;
   if (
     value.startsWith("GROUP:") ||
     value.startsWith("SERVICE:") ||
@@ -95,6 +95,8 @@ function getActionCapability(action) {
     value.startsWith("INFO:") ||
     value === "SERVICES" ||
     value === "PROVIDERS" ||
+    value === "MENU_COLLECT" ||
+    value === "MENU_SEND" ||
     value === "SEARCH:SERVICE" ||
     value === "PP:HOME" ||
     value === "PP:EMAIL" ||
@@ -102,10 +104,10 @@ function getActionCapability(action) {
   ) {
     return CAPABILITIES.SERVICES_USE;
   }
-  if (["PROFILE", "BALANCE", "RECEIPTS", "REFERRAL"].includes(value)) return CAPABILITIES.ACCOUNT_READ;
+  if (["PROFILE", "BALANCE", "RECEIPTS", "REFERRAL", "MENU_ACCOUNT"].includes(value)) return CAPABILITIES.ACCOUNT_READ;
   if (value === "HEALTH") return CAPABILITIES.HEALTH_READ;
   if (
-    ["STATUS", "BOT_OPS", "BOT_ANALYTICS", "SUBSCRIPTION_ALERTS", "PAYMENT_AUDIT", "CLIENTS", "SECURITY"].includes(value) ||
+    ["STATUS", "BOT_OPS", "BOT_ANALYTICS", "SUBSCRIPTION_ALERTS", "PAYMENT_AUDIT", "CLIENTS", "SECURITY", "MENU_ADMIN"].includes(value) ||
     value.startsWith("ALERT_") ||
     value.startsWith("PAY_AUDIT_F:") ||
     value.startsWith("EXPORT_")

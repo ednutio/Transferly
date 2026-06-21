@@ -32,7 +32,13 @@ const {
   getCommandCapability,
   getActionCapability,
 } = require("./utils/capabilities");
-const { initialSessionState, ensureSession, resetSession } = require("./utils/sessionState");
+const {
+  initialSessionState,
+  ensureSession,
+  resetSession,
+  rememberProviderContext,
+  getSessionContinuity,
+} = require("./utils/sessionState");
 const {
   SERVICE_GROUPS,
   getService,
@@ -44,6 +50,15 @@ const {
   getServiceCommandCenter,
   getServiceLane,
 } = require("./utils/serviceCatalog");
+const {
+  listProviderWorkspaces,
+  getProviderWorkspace,
+  getProviderLanes,
+  getProviderLane,
+  getProviderLaneStatus: getManifestProviderLaneStatus,
+  findProviderLanesByIntent,
+  buildProviderMiniAppSection,
+} = require("./utils/providerWorkspaces");
 const {
   addUser,
   getUser,
@@ -96,10 +111,8 @@ const TELEGRAM_COMMANDS = [
   { command: "menu", description: "Open the Transferly command center" },
   { command: "miniapp", description: "Open the Transferly Mini App" },
   { command: "providers", description: "Open payment provider cockpit" },
-  { command: "invoices", description: "Review invoices" },
-  { command: "payouts", description: "Review payouts" },
-  { command: "activity", description: "Review payment activity" },
   { command: "services", description: "Browse Transferly service catalog" },
+  { command: "account", description: "Open wallet, receipts, and referrals" },
   { command: "status", description: "Review platform status" },
   { command: "help", description: "How to use Transferly bot" },
   { command: "whoami", description: "Show your bot access" },
@@ -119,9 +132,10 @@ const SCREEN_TYPES = Object.freeze({
   CONFIRM: "confirm",
   RESULT: "result",
 });
-const PAYMENT_PROVIDER_SLUGS = new Set(["paypal", "stripe", "wise", "paystack", "flutterwave", "crypto"]);
-const PROVIDER_COMMAND_SLUGS = Object.freeze(["paypal", "stripe", "wise", "paystack", "flutterwave", "crypto"]);
+const PAYMENT_PROVIDER_SLUGS = new Set(listProviderWorkspaces().map((provider) => provider.slug));
+const PROVIDER_COMMAND_SLUGS = Object.freeze(listProviderWorkspaces().map((provider) => provider.slug));
 const PROVIDER_COMMAND_HINT = PROVIDER_COMMAND_SLUGS.map((slug) => `/${slug}`).join(", ");
+const COMMAND_SECTION_ACTIONS = new Set(["MENU_COLLECT", "MENU_SEND", "MENU_ACCOUNT", "MENU_ADMIN", "MENU_SUPPORT"]);
 const MINI_APP_SECTIONS = Object.freeze({
   home: "",
   dashboard: "",
@@ -474,11 +488,15 @@ function buildMiniAppUrl(section = "home") {
     return "";
   }
 
-  const mappedSection = MINI_APP_SECTIONS[section] ?? MINI_APP_SECTIONS.home;
+  const sectionKey = String(section || "home").replace(/^\/+/, "");
+  const mappedSection = MINI_APP_SECTIONS[sectionKey] ?? (/^[a-z0-9/_-]+$/i.test(sectionKey) ? sectionKey : MINI_APP_SECTIONS.home);
+  const startParam = MINI_APP_SECTIONS[sectionKey] !== undefined
+    ? sectionKey
+    : String(mappedSection || "home").replace(/\//g, "_").slice(0, 64);
   const url = new URL(config.miniAppUrl);
   const basePath = url.pathname.replace(/\/+$/, "");
   url.pathname = mappedSection ? `${basePath}/${mappedSection}` : basePath || "/miniapp";
-  url.searchParams.set("startapp", section);
+  url.searchParams.set("startapp", startParam || "home");
   return url.toString();
 }
 
@@ -595,16 +613,112 @@ function buildMainMenuKeyboard(ctx, access = {}) {
   return keyboard;
 }
 
-function buildProvidersKeyboard(ctx, access = {}) {
+function formatProviderName(slug) {
+  return String(slug || "")
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ") || "Provider";
+}
+
+function buildCommandHubKeyboard(ctx, access = {}) {
+  if (!access.isAuthorized && !access.isAdmin) {
+    return buildGuestKeyboard(ctx, access);
+  }
+
+  const continuity = getSessionContinuity(ctx);
+  const keyboard = new InlineKeyboard();
+  if (continuity.provider) {
+    keyboard
+      .text(`↩️ Continue ${formatProviderName(continuity.provider)}`, buildCallbackData(ctx, `PROVIDER:${continuity.provider}`))
+      .row();
+  }
+
+  keyboard
+    .text("🧾 Collect", buildCallbackData(ctx, "MENU_COLLECT"))
+    .text("💸 Send", buildCallbackData(ctx, "MENU_SEND"))
+    .row()
+    .text("💳 Providers", buildCallbackData(ctx, "PROVIDERS"))
+    .text("🏦 Account", buildCallbackData(ctx, "MENU_ACCOUNT"))
+    .row()
+    .text("🧰 Services", buildCallbackData(ctx, "SERVICES"))
+    .text("🛟 Support", buildCallbackData(ctx, "MENU_SUPPORT"));
+
+  if (access.isAdmin) {
+    keyboard
+      .row()
+      .text("🧩 Operations", buildCallbackData(ctx, "MENU_ADMIN"))
+      .text("📊 Analytics", buildCallbackData(ctx, "BOT_ANALYTICS"))
+      .row()
+      .text("🔐 Security", buildCallbackData(ctx, "SECURITY"));
+  }
+
+  if (access.isOwner) {
+    keyboard.text("👥 Users", buildCallbackData(ctx, "USERS"));
+  }
+
+  keyboard.row().text("📋 Main Menu", buildCallbackData(ctx, "MENU"));
+  addMiniAppButton(keyboard, "🚀 Dashboard", "dashboard");
+  addMiniAppButton(keyboard, "🧾 Studio", "studio");
+  addMiniAppButton(keyboard, "💰 Wallet", "wallet");
+  return keyboard;
+}
+
+function buildAccountCommandKeyboard(ctx) {
   const keyboard = new InlineKeyboard()
-    .text("PayPal", buildCallbackData(ctx, "PROVIDER:paypal"))
-    .text("Stripe", buildCallbackData(ctx, "PROVIDER:stripe"))
+    .text("👤 Profile", buildCallbackData(ctx, "PROFILE"))
+    .text("💰 Balance", buildCallbackData(ctx, "BALANCE"))
     .row()
-    .text("Wise", buildCallbackData(ctx, "PROVIDER:wise"))
-    .text("Paystack", buildCallbackData(ctx, "PROVIDER:paystack"))
+    .text("🧾 Receipts", buildCallbackData(ctx, "RECEIPTS"))
+    .text("🎁 Referral", buildCallbackData(ctx, "REFERRAL"))
     .row()
-    .text("Flutterwave", buildCallbackData(ctx, "PROVIDER:flutterwave"))
-    .text("Crypto", buildCallbackData(ctx, "PROVIDER:crypto"));
+    .text("🛟 Support", buildCallbackData(ctx, "MENU_SUPPORT"))
+    .text("🏠 Main Menu", buildCallbackData(ctx, "MENU"));
+  addMiniAppButton(keyboard, "💰 Open Wallet", "wallet");
+  addMiniAppButton(keyboard, "🗂️ Open Vault", "vault");
+  addMiniAppButton(keyboard, "👤 Open Profile", "profile");
+  return keyboard;
+}
+
+function buildSupportCommandKeyboard(ctx) {
+  const keyboard = new InlineKeyboard()
+    .text("📚 Help Guide", buildCallbackData(ctx, "HELP"))
+    .text("🪪 Whoami", buildCallbackData(ctx, "WHOAMI"))
+    .row()
+    .text("🏥 Health", buildCallbackData(ctx, "HEALTH"))
+    .text("💳 Providers", buildCallbackData(ctx, "PROVIDERS"))
+    .row()
+    .text("🏠 Main Menu", buildCallbackData(ctx, "MENU"));
+  addMiniAppButton(keyboard, "🛟 Open Support", "support");
+  return keyboard;
+}
+
+function buildCommandSectionKeyboard(ctx, section, access = {}) {
+  switch (section) {
+    case "MENU_COLLECT":
+      return buildInvoiceCenterKeyboard(ctx, access);
+    case "MENU_SEND":
+      return buildPayoutCenterKeyboard(ctx, access);
+    case "MENU_ACCOUNT":
+      return buildAccountCommandKeyboard(ctx);
+    case "MENU_ADMIN":
+      return access.isAdmin ? buildOpsCommandCenterKeyboard(ctx) : buildCommandHubKeyboard(ctx, access);
+    case "MENU_SUPPORT":
+    default:
+      return buildSupportCommandKeyboard(ctx);
+  }
+}
+
+function buildProvidersKeyboard(ctx, access = {}) {
+  const keyboard = new InlineKeyboard();
+  addButtonGrid(
+    keyboard,
+    listProviderWorkspaces().map((provider) => ({
+      label: provider.displayName,
+      action: buildCallbackData(ctx, `PROVIDER:${provider.slug}`),
+    })),
+    2,
+  );
 
   if (access.isAdmin) {
     keyboard
@@ -620,17 +734,21 @@ function buildProvidersKeyboard(ctx, access = {}) {
     .row()
     .text("🧰 Service Catalog", buildCallbackData(ctx, "SERVICES"))
     .text("🏠 Main Menu", buildCallbackData(ctx, "MENU"));
-  addMiniAppButton(keyboard, "🚀 Open Provider Dashboard", "ops");
+  addMiniAppButton(keyboard, "🚀 Open Provider Center", "services");
   return keyboard;
 }
 
 function buildInvoiceCenterKeyboard(ctx, access = {}) {
-  const keyboard = new InlineKeyboard()
-    .text("PayPal Invoices", buildCallbackData(ctx, "PP:INV"))
-    .text("Stripe Invoices", buildCallbackData(ctx, "PROVIDER_INV:stripe"))
-    .row()
-    .text("Crypto Receive", buildCallbackData(ctx, "PROVIDER_INV:crypto"))
-    .text("All Providers", buildCallbackData(ctx, "PROVIDERS"));
+  const keyboard = new InlineKeyboard();
+  addButtonGrid(
+    keyboard,
+    findProviderLanesByIntent("collect").map(({ workspace, lane }) => ({
+      label: providerLaneButtonLabel(workspace, lane, { commandLabel: true }),
+      action: providerLaneAction(ctx, workspace, lane),
+    })),
+    2,
+  );
+  keyboard.row().text("All Providers", buildCallbackData(ctx, "PROVIDERS"));
 
   if (access.isAdmin) {
     keyboard
@@ -643,21 +761,21 @@ function buildInvoiceCenterKeyboard(ctx, access = {}) {
     .row()
     .text("🧰 Service Catalog", buildCallbackData(ctx, "SERVICES"))
     .text("🏠 Main Menu", buildCallbackData(ctx, "MENU"));
-  addMiniAppButton(keyboard, "📄 Open Invoices", "invoices");
-  addMiniAppButton(keyboard, "💳 Provider Dashboard", "ops");
+  addMiniAppButton(keyboard, "📄 Open Collection Center", "services");
   return keyboard;
 }
 
 function buildPayoutCenterKeyboard(ctx, access = {}) {
-  const keyboard = new InlineKeyboard()
-    .text("PayPal Payouts", buildCallbackData(ctx, "PP:PO"))
-    .text("Stripe Payouts", buildCallbackData(ctx, "PROVIDER_PO:stripe"))
-    .row()
-    .text("Wise Send", buildCallbackData(ctx, "PROVIDER:wise"))
-    .text("Flutterwave Transfers", buildCallbackData(ctx, "PROVIDER:flutterwave"))
-    .row()
-    .text("Crypto Send", buildCallbackData(ctx, "PROVIDER:crypto"))
-    .text("All Providers", buildCallbackData(ctx, "PROVIDERS"));
+  const keyboard = new InlineKeyboard();
+  addButtonGrid(
+    keyboard,
+    findProviderLanesByIntent("send").map(({ workspace, lane }) => ({
+      label: providerLaneButtonLabel(workspace, lane, { commandLabel: true }),
+      action: providerLaneAction(ctx, workspace, lane),
+    })),
+    2,
+  );
+  keyboard.row().text("All Providers", buildCallbackData(ctx, "PROVIDERS"));
 
   if (access.isAdmin) {
     keyboard
@@ -670,8 +788,7 @@ function buildPayoutCenterKeyboard(ctx, access = {}) {
     .row()
     .text("🧰 Service Catalog", buildCallbackData(ctx, "SERVICES"))
     .text("🏠 Main Menu", buildCallbackData(ctx, "MENU"));
-  addMiniAppButton(keyboard, "💸 Open Payouts", "payouts");
-  addMiniAppButton(keyboard, "💳 Provider Dashboard", "ops");
+  addMiniAppButton(keyboard, "💸 Open Sending Center", "services");
   return keyboard;
 }
 
@@ -843,9 +960,53 @@ function isPaymentProviderService(service) {
 }
 
 function getProviderLaneStatus(providerSlug, laneId) {
+  const manifestStatus = getManifestProviderLaneStatus(providerSlug, laneId);
+  if (manifestStatus !== "setup") return manifestStatus;
   const lane = PROVIDER_LANE_DETAILS[laneId];
   if (!lane) return "setup";
   return lane.statusByProvider?.[providerSlug] || lane.status || "setup";
+}
+
+function providerLaneStatusIcon(status) {
+  if (status === "live") return "✅";
+  if (status === "preview") return "🧪";
+  if (status === "coming-soon") return "⏳";
+  return "🛠";
+}
+
+function providerLaneStatusLabel(status) {
+  if (status === "live") return "Live";
+  if (status === "preview") return "Preview";
+  if (status === "coming-soon") return "Coming soon";
+  return "Setup required";
+}
+
+function providerLaneButtonLabel(workspace, lane, options = {}) {
+  const label = options.commandLabel ? lane.commandLabel || lane.label : lane.shortLabel || lane.label;
+  const prefix = options.includeProvider ? `${workspace.displayName} ` : "";
+  return `${providerLaneStatusIcon(lane.status)} ${prefix}${label}`;
+}
+
+function providerLaneAction(ctx, workspace, lane) {
+  return buildCallbackData(ctx, lane.botAction || `PROVIDER_LANE:${workspace.slug}:${lane.id}`);
+}
+
+function addProviderWorkspaceMiniAppButton(keyboard, providerSlug, laneId = "overview", label = "🚀 Open Provider Workspace") {
+  return addMiniAppButton(keyboard, label, buildProviderMiniAppSection(providerSlug, laneId));
+}
+
+function copyInlineKeyboardRows(targetKeyboard, sourceKeyboard) {
+  (sourceKeyboard.inline_keyboard || []).forEach((row, rowIndex) => {
+    if (rowIndex > 0) targetKeyboard.row();
+    row.forEach((button) => {
+      if (button.callback_data) {
+        targetKeyboard.text(button.text, button.callback_data);
+      } else if (button.url) {
+        targetKeyboard.url(button.text, button.url);
+      }
+    });
+  });
+  return targetKeyboard;
 }
 
 function buildServiceCommandCenterSummaryUrl(slug) {
@@ -1035,38 +1196,73 @@ function buildProviderDetailKeyboard(ctx, service, refreshAction) {
   return keyboard;
 }
 
+function buildProviderLaneKeyboard(ctx, service, workspace, lane) {
+  const keyboard = new InlineKeyboard();
+  if (lane.status === "live" && lane.botAction) {
+    keyboard.text(`🚀 Open ${lane.label}`, buildCallbackData(ctx, lane.botAction)).row();
+  }
+  if (workspace?.docsUrl) {
+    keyboard.url("📚 Official Docs", workspace.docsUrl);
+  }
+  if (workspace?.supportUrl) {
+    keyboard.url("🛟 Help", workspace.supportUrl);
+  }
+  addProviderWorkspaceMiniAppButton(keyboard, service.slug, lane.id, `🚀 Open ${lane.label} Mini App`);
+  keyboard
+    .row()
+    .text(`⬅️ ${service.title}`, buildCallbackData(ctx, `PROVIDER:${service.slug}`))
+    .text("🏠 Main Menu", buildCallbackData(ctx, "MENU"));
+  return keyboard;
+}
+
+function providerLaneNextStep(service, lane, status) {
+  if (status === "live" && lane.botAction) {
+    return `Use Open ${lane.label} for the guided bot flow, or continue in the Mini App workspace.`;
+  }
+  if (status === "live") {
+    return "Open the Mini App workspace for the full lane view, or refresh the provider workspace when available.";
+  }
+  if (status === "preview") {
+    return "Review this lane in the Mini App while the remaining backend controls are completed.";
+  }
+  if (status === "setup") {
+    return `Connect ${service.title} credentials, signed webhooks, idempotency, state mapping, and ledger rules before enabling this lane.`;
+  }
+  if (status === "planned") {
+    return "Keep this lane visible for product planning, then enable it after backend support and tests are ready.";
+  }
+  return "Return to the provider workspace or open the official docs for setup guidance.";
+}
+
 function buildProviderWorkspaceKeyboard(ctx, service, access = {}) {
   if (service.slug === "paypal") {
     return buildPayPalWorkspaceKeyboard(ctx, access);
   }
 
-  const keyboard = new InlineKeyboard()
-    .text("✍️ Custom Details", buildCallbackData(ctx, `PROVIDER_CUSTOM:${service.slug}`))
-    .row();
+  const keyboard = new InlineKeyboard();
+  const workspace = getProviderWorkspace(service.slug);
+  const lanes = (workspace?.lanes || []).filter((lane) => lane.id !== "overview");
 
-  ["invoices", "payouts", "wallet-balance", "provider-activity"].forEach((laneId, index) => {
-    const lane = PROVIDER_LANE_DETAILS[laneId];
-    const status = getProviderLaneStatus(service.slug, laneId);
-    const label = `${status === "live" ? "✅" : "🛠"} ${lane.label}`;
-    keyboard.text(label, buildCallbackData(ctx, `PROVIDER_LANE:${service.slug}:${laneId}`));
-    if (index % 2 === 1 && index < 3) {
-      keyboard.row();
-    }
-  });
+  addButtonGrid(
+    keyboard,
+    lanes.map((lane) => ({
+      label: providerLaneButtonLabel(workspace, lane),
+      action: providerLaneAction(ctx, workspace, lane),
+    })),
+    2,
+  );
 
   if (access.isAdmin) {
     const opsKeyboard = buildProviderOpsKeyboard(ctx, service, { includeReconcile: true });
     keyboard.row();
-    (opsKeyboard.inline_keyboard || []).forEach((row, rowIndex) => {
-      if (rowIndex > 0) keyboard.row();
-      row.forEach((button) => keyboard.text(button.text, button.callback_data));
-    });
+    copyInlineKeyboardRows(keyboard, opsKeyboard);
   }
 
   keyboard
     .row()
     .text(`⬅️ ${service.title}`, buildCallbackData(ctx, `SERVICE:${service.slug}`))
     .text("🏠 Main Menu", buildCallbackData(ctx, "MENU"));
+  addProviderWorkspaceMiniAppButton(keyboard, service.slug, "overview", `🚀 Open ${service.title} Mini App`);
   return keyboard;
 }
 
@@ -1269,6 +1465,9 @@ function buildPayPalWorkspaceKeyboard(ctx, access = {}) {
       .text("📄 Official Invoices", buildCallbackData(ctx, "PP:INV"))
       .text("💸 Official Payouts", buildCallbackData(ctx, "PP:PO"))
       .row()
+      .text("🛰 Activity", buildCallbackData(ctx, "PROVIDER_WEBHOOKS:paypal"))
+      .text("🧪 Developer", buildCallbackData(ctx, "PROVIDER_LANE:paypal:developer"))
+      .row()
       .text("🔎 Search Invoice", buildCallbackData(ctx, "PP:INV_SEARCH"))
       .text("🔎 Search Payout", buildCallbackData(ctx, "PP:PO_SEARCH"));
   }
@@ -1277,6 +1476,7 @@ function buildPayPalWorkspaceKeyboard(ctx, access = {}) {
     .row()
     .text("⬅️ PayPal Service", buildCallbackData(ctx, "SERVICE:paypal"))
     .text("🏠 Main Menu", buildCallbackData(ctx, "MENU"));
+  addProviderWorkspaceMiniAppButton(keyboard, "paypal", "overview", "🚀 Open PayPal Mini App");
   return keyboard;
 }
 
@@ -1994,16 +2194,22 @@ async function runServiceReceipt(ctx, service, details = {}) {
 async function handlePayPalWorkspace(ctx) {
   if (!(await requireCapability(ctx, CAPABILITIES.SERVICES_USE, "PayPal service workspace"))) return;
   const access = await getAccessStatus(ctx);
+  const workspace = getProviderWorkspace("paypal");
+  const lanes = (workspace?.lanes || [])
+    .filter((lane) => lane.id !== "overview")
+    .map((lane) => line(`${providerLaneStatusIcon(lane.status)} ${lane.label}`, `${providerLaneStatusLabel(lane.status)} · ${lane.summary}`));
   rememberScreen(ctx, "PP:HOME");
+  rememberProviderContext(ctx, { provider: "paypal", action: "PP:HOME" });
   clearPendingPrompts(ctx);
   const lines = [
     "<b>PayPal Workspace</b>",
     "",
-    "Choose the PayPal lane you want to operate.",
+    escapeHtml(workspace?.shortDescription || "Choose the PayPal lane you want to operate."),
     "",
-    line("Notification", "Generate PayPal receipt-style notification output"),
-    access.isAdmin ? line("Official Invoices", "Filter, page, inspect, refresh, open links, and release paid funds") : null,
-    access.isAdmin ? line("Official Payouts", "Filter, page, inspect, approve, reject, refresh, or cancel unclaimed payouts") : null,
+    "<b>Provider Lanes</b>",
+    ...lanes,
+    access.isAdmin ? "" : null,
+    access.isAdmin ? "Admin lanes include official invoice, payout, activity, and developer operations." : null,
   ].filter(Boolean);
   await replyHtml(ctx, lines.join("\n"), buildPayPalWorkspaceKeyboard(ctx, access));
 }
@@ -2014,6 +2220,7 @@ async function handleProviderWorkspace(ctx, slug) {
     await handleServiceDetail(ctx, slug);
     return;
   }
+  rememberProviderContext(ctx, { provider: service.slug, action: `PROVIDER:${service.slug}` });
 
   if (service.slug === "paypal") {
     await handlePayPalWorkspace(ctx);
@@ -2032,24 +2239,25 @@ async function handleProviderWorkspace(ctx, slug) {
     : [null, null];
   const providerStatus = statusPayload?.provider || {};
   const providerFeatures = featuresPayload?.provider || {};
+  const workspace = getProviderWorkspace(service.slug);
+  const laneLines = (workspace?.lanes || [])
+    .filter((lane) => lane.id !== "overview")
+    .map((lane) => line(`${providerLaneStatusIcon(lane.status)} ${lane.label}`, `${providerLaneStatusLabel(lane.status)} · ${lane.summary}`));
   const missingEnv = Array.isArray(providerStatus.missing_env) ? providerStatus.missing_env : [];
   const nextActions = Array.isArray(providerStatus.next_actions) ? providerStatus.next_actions.slice(0, 3) : [];
   const lines = [
     `<b>${escapeHtml(service.title)} Workspace</b>`,
     "",
-    "Choose the provider lane you want to inspect or operate.",
+    escapeHtml(workspace?.shortDescription || "Choose the provider lane you want to inspect or operate."),
     "",
     access.isAdmin ? line("Readiness", providerStatus.status || "catalog") : null,
     access.isAdmin ? line("Mode", providerStatus.mode || "—") : null,
     access.isAdmin ? line("Invoice Features", formatProviderFeatureSummary(providerFeatures.invoice_features)) : null,
     missingEnv.length ? line("Missing Env", missingEnv.join(", ")) : null,
     nextActions.length ? line("Next Actions", nextActions.join("; ")) : null,
-    access.isAdmin ? "" : null,
-    line("Custom Details", "Live provider-styled receipt builder"),
-    line("Invoices", getProviderLaneStatus(service.slug, "invoices") === "live" ? "Live official invoice lane" : "Setup lane"),
-    line("Payouts", getProviderLaneStatus(service.slug, "payouts") === "live" ? "Live payout operations" : "Setup lane"),
-    line("Wallet Balance", getProviderLaneStatus(service.slug, "wallet-balance") === "live" ? "Live balance view" : "Setup lane"),
-    line("Provider Activity", getProviderLaneStatus(service.slug, "provider-activity") === "live" ? "Live webhook or state-sync lane" : "Setup lane"),
+    "",
+    "<b>Provider Lanes</b>",
+    ...laneLines,
   ].filter(Boolean);
   await replyHtml(ctx, lines.join("\n"), buildProviderWorkspaceKeyboard(ctx, service, access));
 }
@@ -2082,6 +2290,7 @@ async function handleProviderPayouts(ctx, slug) {
   }
 
   if (!(await requireAdmin(ctx, `${service.title} payouts`))) return;
+  rememberProviderContext(ctx, { provider: service.slug, lane: "payouts", action: `PROVIDER_PO:${service.slug}` });
   await handlePayPalPayouts(ctx, {
     provider: service.slug,
     providerState: "ALL",
@@ -2183,22 +2392,30 @@ async function handleProviderIssues(ctx, slug) {
 
 async function handleProviderLane(ctx, slug, laneId) {
   const service = getService(slug);
-  const lane = PROVIDER_LANE_DETAILS[laneId];
+  const workspace = getProviderWorkspace(slug);
+  const manifestLane = getProviderLane(slug, laneId);
+  const lane = manifestLane || PROVIDER_LANE_DETAILS[laneId];
   if (!service || !isPaymentProviderService(service) || !lane) {
     await replyHtml(ctx, "Unknown provider lane. Open the provider workspace again.", buildServiceGroupsKeyboard(ctx));
     return;
   }
 
-  if (laneId === "custom-details") {
+  if (laneId === "custom-details" || lane.intent === "custom") {
     await startServiceComposer(ctx, service, { mode: "custom_details" });
     return;
   }
 
-  if (!(await requireAdmin(ctx, `${service.title} ${lane.label}`))) return;
+  const requiresAdmin = lane.requiresAdmin !== false;
+  const allowed = requiresAdmin
+    ? await requireAdmin(ctx, `${service.title} ${lane.label}`)
+    : await requireCapability(ctx, CAPABILITIES.SERVICES_USE, `${service.title} ${lane.label}`);
+  if (!allowed) return;
+
   rememberScreen(ctx, `PROVIDER_LANE:${service.slug}:${laneId}`);
+  rememberProviderContext(ctx, { provider: service.slug, lane: laneId, action: `PROVIDER_LANE:${service.slug}:${laneId}` });
   const status = getProviderLaneStatus(service.slug, laneId);
 
-  if (status === "live" && laneId === "invoices") {
+  if (status === "live" && (lane.botAction === "PP:INV" || lane.botAction === `PROVIDER_INV:${service.slug}` || laneId === "invoices")) {
     await handlePayPalInvoices(ctx, {
       provider: service.slug,
       page: 1,
@@ -2207,17 +2424,25 @@ async function handleProviderLane(ctx, slug, laneId) {
     return;
   }
 
-  if (status === "live" && laneId === "payouts") {
+  if (status === "live" && (lane.botAction === "PP:PO" || lane.botAction === `PROVIDER_PO:${service.slug}` || laneId === "payouts")) {
+    if (service.slug === "paypal") {
+      await handlePayPalPayouts(ctx, {
+        provider: service.slug,
+        page: 1,
+        notice: `${service.title} payout workspace`,
+      });
+      return;
+    }
     await handleProviderPayouts(ctx, service.slug);
     return;
   }
 
-  if (status === "live" && laneId === "wallet-balance") {
+  if (status === "live" && (lane.botAction === `PROVIDER_BAL:${service.slug}` || laneId === "wallet-balance")) {
     await handleProviderBalance(ctx, service.slug);
     return;
   }
 
-  if (status === "live" && laneId === "provider-activity") {
+  if (status === "live" && (lane.botAction === `PROVIDER_WEBHOOKS:${service.slug}` || laneId === "provider-activity")) {
     await handleProviderWebhooks(ctx, service.slug);
     return;
   }
@@ -2225,29 +2450,20 @@ async function handleProviderLane(ctx, slug, laneId) {
   const lines = [
     `<b>${escapeHtml(service.title)} · ${escapeHtml(lane.label)}</b>`,
     "",
-    line("Status", status === "live" ? "Live" : "Setup required"),
+    line("Status", providerLaneStatusLabel(status)),
+    workspace ? line("Environment", (workspace.environments || []).join(" / ")) : null,
+    line("Intent", lane.intent || "workspace"),
     "",
     escapeHtml(lane.summary),
     "",
+    line("Next step", providerLaneNextStep(service, lane, status)),
+    "",
     status === "live"
       ? "This lane has backend support where provider readiness and admin permissions are configured."
-      : "This lane is intentionally visible but disabled until signed API clients, webhook verification, idempotency, state mapping, ledger rules, and sandbox tests are completed.",
-  ];
+      : "This lane is visible for navigation consistency, but it stays in setup until signed API clients, webhook verification, idempotency, state mapping, ledger rules, and sandbox tests are completed.",
+  ].filter(Boolean);
 
-  const keyboard = new InlineKeyboard();
-  if (service.slug === "stripe" && laneId === "invoices") {
-    keyboard.text("📄 Open Stripe Invoices", buildCallbackData(ctx, "PROVIDER_INV:stripe"));
-  } else if (service.slug === "crypto" && laneId === "invoices") {
-    keyboard.text("📄 Open Crypto Invoices", buildCallbackData(ctx, "PROVIDER_INV:crypto"));
-  } else if (laneId === "provider-activity") {
-    keyboard.text("⚠️ Payment Issues", buildCallbackData(ctx, "ISSUES"));
-  }
-
-  keyboard
-    .row()
-    .text(`⬅️ ${service.title}`, buildCallbackData(ctx, `PROVIDER:${service.slug}`))
-    .text("🏠 Main Menu", buildCallbackData(ctx, "MENU"));
-  await replyHtml(ctx, lines.join("\n"), keyboard);
+  await replyHtml(ctx, lines.join("\n"), buildProviderLaneKeyboard(ctx, service, workspace, lane));
 }
 
 function invoiceListLabel(invoice, index) {
@@ -2265,6 +2481,12 @@ async function handlePayPalInvoices(ctx, updates = {}) {
   const { notice, ...viewUpdates } = updates;
   const view = updatePayPalView(ctx, "invoice", viewUpdates);
   rememberScreen(ctx, view.provider ? `PROVIDER_INV:${view.provider}` : "PP:INV");
+  rememberProviderContext(ctx, {
+    provider: view.provider || "paypal",
+    lane: "invoices",
+    filters: getPayPalQueryFromView(view),
+    action: view.provider ? `PROVIDER_INV:${view.provider}` : "PP:INV",
+  });
   const payload = await adminGet("/api/admin/invoices", getPayPalQueryFromView(view));
   const items = Array.isArray(payload.data) ? payload.data : [];
   const keyed = cachePayPalRecords(ctx, "invoice", items);
@@ -2290,6 +2512,12 @@ async function handlePayPalPayouts(ctx, updates = {}) {
   const { notice, ...viewUpdates } = updates;
   const view = updatePayPalView(ctx, "payout", viewUpdates);
   rememberScreen(ctx, view.provider ? `PROVIDER_PO:${view.provider}` : "PP:PO");
+  rememberProviderContext(ctx, {
+    provider: view.provider || "paypal",
+    lane: "payouts",
+    filters: getPayPalQueryFromView(view),
+    action: view.provider ? `PROVIDER_PO:${view.provider}` : "PP:PO",
+  });
   const payload = await adminGet("/api/admin/payouts", getPayPalQueryFromView(view));
   const items = Array.isArray(payload.data) ? payload.data : [];
   const keyed = cachePayPalRecords(ctx, "payout", items);
@@ -3117,6 +3345,9 @@ async function handleHelp(ctx) {
     "",
     "The fastest way to use the bot is through inline buttons. The visible Telegram command menu only shows the entry points; this guide lists the direct shortcuts when you need them.",
     "",
+    "<b>🧭 Interactive Command Hub</b>",
+    "Use the buttons below for collection, sending, account, support, provider, and operator submenus that mirror the Mini App workspaces.",
+    "",
     "<b>🧭 Main Navigation</b>",
     "• /start — opens a clean Transferly home screen.",
     "• /menu — resets the current flow and returns to the main workspace menu.",
@@ -3189,7 +3420,63 @@ async function handleHelp(ctx) {
     "Menus automatically replace the previous bot message to keep the chat clean.",
   );
 
-  await replyHtml(ctx, lines.join("\n"), buildScreenKeyboard(ctx, SCREEN_TYPES.DETAIL));
+  await replyHtml(ctx, lines.join("\n"), buildCommandHubKeyboard(ctx, access));
+}
+
+function formatCommandSectionBody(section) {
+  switch (section) {
+    case "MENU_COLLECT":
+      return [
+        "<b>🧾 Collection Workflows</b>",
+        "",
+        "Open provider-first collection lanes for invoices, receive flows, provider setup, and operational review.",
+        "",
+        "Use provider workspaces when you need provider-specific details; use aggregate views only for operator review.",
+      ].join("\n");
+    case "MENU_SEND":
+      return [
+        "<b>💸 Sending Workflows</b>",
+        "",
+        "Open provider-first payout, transfer, send, and review lanes with the same operational shortcuts exposed in the Mini App.",
+        "",
+        "Admin actions remain permission-gated before any payout mutation is attempted.",
+      ].join("\n");
+    case "MENU_ACCOUNT":
+      return [
+        "<b>🏦 Account Workspace</b>",
+        "",
+        "Review your linked Transferly profile, balance, receipts, and referral context without leaving Telegram.",
+      ].join("\n");
+    case "MENU_ADMIN":
+      return [
+        "<b>🧩 Operator Command Center</b>",
+        "",
+        "Monitor payment activity, users, risk, security, reconciliation, audit logs, and bot analytics from one operator submenu.",
+      ].join("\n");
+    case "MENU_SUPPORT":
+    default:
+      return [
+        "<b>🛟 Support & Diagnostics</b>",
+        "",
+        "Find help, confirm your access, check service health, and jump back into provider or Mini App support surfaces.",
+      ].join("\n");
+  }
+}
+
+async function handleCommandSection(ctx, section) {
+  const capability =
+    section === "MENU_ADMIN"
+      ? CAPABILITIES.SYSTEM_STATUS
+      : section === "MENU_ACCOUNT"
+        ? CAPABILITIES.ACCOUNT_READ
+        : section === "MENU_SUPPORT"
+          ? CAPABILITIES.PUBLIC
+          : CAPABILITIES.SERVICES_USE;
+  if (capability !== CAPABILITIES.PUBLIC && !(await requireCapability(ctx, capability, "command menu"))) return;
+  const access = await getAdminStatus(ctx);
+  rememberScreen(ctx, section);
+  clearPendingPrompts(ctx);
+  await replyHtml(ctx, formatCommandSectionBody(section), buildCommandSectionKeyboard(ctx, section, access));
 }
 
 async function handleServices(ctx) {
@@ -3575,21 +3862,30 @@ async function handleReferral(ctx) {
   await replyLinkedCommand(ctx, "/referral", "Referral");
 }
 
+async function handleAccount(ctx) {
+  await handleCommandSection(ctx, "MENU_ACCOUNT");
+}
+
 async function handleProviders(ctx) {
   if (!(await requireCapability(ctx, CAPABILITIES.SERVICES_USE, "provider cockpit"))) return;
   rememberScreen(ctx, "PROVIDERS");
   clearPendingPrompts(ctx);
   const access = await getAdminStatus(ctx);
-  const providerServices = Array.from(PAYMENT_PROVIDER_SLUGS)
-    .map((slug) => getService(slug))
-    .filter(Boolean);
+  const providerWorkspaces = listProviderWorkspaces();
   const lines = [
     "<b>💳 Transferly Provider Cockpit</b>",
     "",
     "One workspace for provider lanes, official payment operations, and Mini App deep links.",
     "",
-    "<b>Provider Lanes</b>",
-    ...providerServices.map((service) => `• <b>${escapeHtml(service.title)}</b> — ${escapeHtml(service.description || serviceSummary(service))}`),
+    "<b>Provider Workspaces</b>",
+    ...providerWorkspaces.map((workspace) => {
+      const laneSummary = workspace.lanes
+        .filter((lane) => lane.id !== "overview")
+        .slice(0, 4)
+        .map((lane) => `${providerLaneStatusIcon(lane.status)} ${lane.label}`)
+        .join(", ");
+      return `• <b>${escapeHtml(workspace.displayName)}</b> — ${escapeHtml(workspace.shortDescription)}\n  ${escapeHtml(laneSummary)}`;
+    }),
   ];
 
   if (access.isAdmin) {
@@ -5180,6 +5476,7 @@ async function handleStoredNavigationAction(ctx, action) {
   if (!action || action === "MENU") return handleMenu(ctx);
   if (action === "SERVICES") return handleServices(ctx);
   if (action === "HELP") return handleHelp(ctx);
+  if (COMMAND_SECTION_ACTIONS.has(action)) return handleCommandSection(ctx, action);
   if (action === "PROFILE") return handleProfile(ctx);
   if (action === "WHOAMI") return handleWhoami(ctx);
   if (action === "BALANCE") return handleBalance(ctx);
@@ -5408,7 +5705,9 @@ registerCommands(bot, {
     handleProviderCommand,
     handleProviderShortcut,
     handleHelp,
+    handleCommandSection,
     handleWhoami,
+    handleAccount,
     handleProfile,
     handleBalance,
     handleReceipts,
@@ -5469,6 +5768,7 @@ registerCallbackRouter(bot, {
     handleInvoices,
     handlePayouts,
     handleHelp,
+    handleCommandSection,
     handleProfile,
     handleWhoami,
     handleBalance,
@@ -5738,6 +6038,8 @@ module.exports = {
   buildScreenKeyboard,
   buildStartKeyboard,
   buildMainMenuKeyboard,
+  buildCommandHubKeyboard,
+  buildCommandSectionKeyboard,
   buildProvidersKeyboard,
   buildInvoiceCenterKeyboard,
   buildPayoutCenterKeyboard,
